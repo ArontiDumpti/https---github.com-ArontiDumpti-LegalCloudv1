@@ -5,9 +5,11 @@ namespace App\Providers;
 use App\Domain\AI\Contracts\EmbeddingProvider;
 use App\Domain\AI\Contracts\LlmProvider;
 use App\Domain\AI\Contracts\OcrProvider;
+use App\Domain\AI\Providers\ExtractiveLlmProvider;
+use App\Domain\AI\Providers\NativeDocumentTextProvider;
+use App\Domain\AI\Providers\OpenAiEmbeddingProvider;
 use App\Domain\AI\Providers\OpenAiLlmProvider;
 use App\Domain\AI\Providers\UnavailableEmbeddingProvider;
-use App\Domain\AI\Providers\UnavailableLlmProvider;
 use App\Domain\AI\Providers\UnavailableOcrProvider;
 use App\Models\PersonalAccessToken;
 use App\Models\User;
@@ -24,14 +26,30 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->bind(OcrProvider::class, UnavailableOcrProvider::class);
-        $this->app->bind(EmbeddingProvider::class, UnavailableEmbeddingProvider::class);
-        $this->app->bind(LlmProvider::class, function ($app): LlmProvider {
-            if (config('legalcloud.ai.enabled') && config('legalcloud.ai.provider') === 'openai') {
-                return $app->make(OpenAiLlmProvider::class);
+        $this->app->bind(OcrProvider::class, function ($app): OcrProvider {
+            if (config('legalcloud.ocr.provider') === 'native') {
+                return $app->make(NativeDocumentTextProvider::class);
             }
 
-            return $app->make(UnavailableLlmProvider::class);
+            return $app->make(UnavailableOcrProvider::class);
+        });
+        $this->app->bind(EmbeddingProvider::class, function ($app): EmbeddingProvider {
+            if (config('legalcloud.embeddings.enabled') && config('legalcloud.embeddings.provider') === 'openai') {
+                return $app->make(OpenAiEmbeddingProvider::class);
+            }
+
+            return $app->make(UnavailableEmbeddingProvider::class);
+        });
+        $this->app->bind(LlmProvider::class, function ($app): LlmProvider {
+            $apiKey = config('services.openai.api_key');
+            $openAiReady = config('legalcloud.ai.enabled')
+                && config('legalcloud.ai.provider') === 'openai'
+                && is_string($apiKey)
+                && trim($apiKey) !== '';
+
+            return $openAiReady
+                ? $app->make(OpenAiLlmProvider::class)
+                : $app->make(ExtractiveLlmProvider::class);
         });
     }
 

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Domain\AI\VectorIndexService;
 use App\Domain\Audit\AuditLogger;
 use App\Domain\Documents\DocumentTextSearch;
+use App\Domain\Documents\HybridSearch;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\SearchRequest;
 use App\Http\Requests\Api\V1\UpdateDocumentRequest;
@@ -169,28 +170,24 @@ class DocumentController extends Controller
         ]);
     }
 
-    public function search(SearchRequest $request, VectorIndexService $vectors, DocumentTextSearch $textSearch): JsonResponse
+    public function search(SearchRequest $request, VectorIndexService $vectors, DocumentTextSearch $textSearch, HybridSearch $hybrid): JsonResponse
     {
         $data = $request->validated();
         $mode = $data['mode'] ?? 'hybrid';
+        $page = (int) ($data['page'] ?? 1);
+        $perPage = min(max((int) ($data['perPage'] ?? 20), 1), 100);
+        $query = trim($data['query']);
+        $organizationId = $request->user()->organization_id;
 
-        if ($mode === 'semantic' || ($mode === 'hybrid' && config('legalcloud.vector.enabled'))) {
-            return response()->json($vectors->search(
-                trim($data['query']),
-                $request->user()->organization_id,
-                $data,
-                (int) ($data['page'] ?? 1),
-                min(max((int) ($data['perPage'] ?? 20), 1), 100),
-            ));
+        if ($mode === 'semantic') {
+            return response()->json($vectors->search($query, $organizationId, $data, $page, $perPage));
         }
 
-        return response()->json($textSearch->search(
-            trim($data['query']),
-            $request->user()->organization_id,
-            $data,
-            (int) ($data['page'] ?? 1),
-            min(max((int) ($data['perPage'] ?? 20), 1), 100),
-        ));
+        if ($mode === 'hybrid' && config('legalcloud.vector.enabled')) {
+            return response()->json($hybrid->search($query, $organizationId, $data, $page, $perPage));
+        }
+
+        return response()->json($textSearch->search($query, $organizationId, $data, $page, $perPage));
     }
 
     private function findDocument(Request $request, string $documentId): Document

@@ -6,6 +6,7 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use App\Http\Middleware\EnsureActiveOrganization;
 use App\Http\Middleware\RequireRole;
+use App\Domain\AI\EmbeddingProviderFailed;
 use App\Domain\AI\ProviderNotConfigured;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -25,6 +26,16 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+        $exceptions->render(function (EmbeddingProviderFailed $exception, Request $request) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            return response()->json([
+                'code' => 'embedding_provider_failed',
+                'message' => 'The configured embedding provider could not complete the request.',
+            ], 503);
+        });
         $exceptions->render(function (ProviderNotConfigured $exception, Request $request) {
             if (! $request->is('api/*')) {
                 return null;

@@ -39,19 +39,38 @@ El índice pgvector guarda el embedding necesario para calcular similitud y refe
 
 ## API implementada
 
-Todas las rutas están bajo `/api/v1`; `GET /api/v1/openapi.yaml` sirve el contrato.
+Todas las rutas viven bajo `/api/v1`. El contrato completo está en [openapi.yaml](openapi.yaml) y también se sirve en `GET /api/v1/openapi.yaml`. Salvo el login y ese contrato, hace falta `Authorization: Bearer <token>`. El tenant sale del usuario autenticado. Los roles son `administrator`, `records_manager`, `analyst` y `consultant`.
 
-- Auth: `POST /auth/login`, `POST /auth/logout`.
-- Usuarios: listar, crear, consultar y actualizar en `/users`.
-- Expedientes: listar, crear, consultar y actualizar en `/cases`.
-- Categorías: listar y crear en `/categories`.
-- Documentos: listar, cargar, consultar, editar, archivar, versiones y descarga temporal.
-- OCR: solicitar procesamiento y consultar el estado de jobs.
-- Búsqueda: `POST /search` busca metadatos y texto OCR, acotado al tenant.
-- Asistente: recupera chunks autorizados de la versión vigente, persiste la respuesta y sus citas, y audita la consulta. Usa OpenAI Responses API con `gpt-4.1-mini` cuando se habilita; sin evidencia responde que no encontró fuentes y, si hay evidencia pero el proveedor está deshabilitado, devuelve `503`.
-- Notificaciones, auditoría y dashboard: lecturas limitadas por usuario, organización y rol.
+| Método y ruta | Quién | Qué hace |
+| --- | --- | --- |
+| `POST /auth/login` | Público, con límite de intentos | Devuelve el token una sola vez. Solo se guarda su SHA-256. |
+| `POST /auth/logout` | Autenticado | Revoca el token actual. |
+| `GET /users`, `GET /users/{userId}` | Autenticado | Lista o consulta usuarios de la organización. |
+| `POST /users`, `PATCH /users/{userId}` | `administrator` | Crea o actualiza un usuario. |
+| `GET /cases`, `GET /cases/{caseId}` | Autenticado | Lista o consulta expedientes. |
+| `POST /cases`, `PATCH /cases/{caseId}` | `administrator`, `records_manager`, `analyst` | Crea o actualiza un expediente. |
+| `GET /categories` | Autenticado | Lista categorías. |
+| `POST /categories` | `administrator`, `records_manager` | Crea una categoría. |
+| `GET /documents`, `GET /documents/{documentId}` | Autenticado | Lista o consulta documentos, con filtros `caseId`, `categoryId`, `status`. |
+| `POST /documents` | `administrator`, `records_manager`, `analyst` | Carga PDF, DOC/DOCX o imagen de hasta 25 MiB, crea la versión y encola la extracción. |
+| `PATCH /documents/{documentId}` | `administrator`, `records_manager`, `analyst` | Cambia título, descripción o categoría. |
+| `DELETE /documents/{documentId}` | `administrator`, `records_manager`, `analyst` | Archiva el documento. |
+| `GET /documents/{documentId}/versions` | Autenticado | Lista versiones inmutables. |
+| `POST /documents/{documentId}/versions` | `administrator`, `records_manager`, `analyst` | Agrega una versión y vuelve a extraer. |
+| `GET /documents/{documentId}/versions/{versionId}/download` | Autenticado | Descarga el archivo descifrado, sin caché. |
+| `POST /documents/{documentId}/ocr` | `administrator`, `records_manager`, `analyst` | Reintenta la extracción de la versión vigente. Responde 202. |
+| `GET /processing-jobs/{jobId}` | Autenticado | Estado de un job `ocr` o `embedding`: `queued`, `processing`, `completed` o `failed`. |
+| `POST /search` | Autenticado | Busca en la documentación autorizada. Ver modos abajo. |
+| `GET /assistant/conversations`, `POST /assistant/conversations` | Autenticado | Lista o crea conversaciones del usuario. |
+| `POST /assistant/conversations/{conversationId}/messages` | Autenticado | Pregunta RAG. Guarda la pregunta, la respuesta y las citas. |
+| `GET /assistant/messages/{messageId}` | Autenticado | Recupera una respuesta y sus citas. |
+| `GET /notifications`, `PATCH /notifications/{notificationId}/read` | Autenticado | Bandeja del propio usuario. |
+| `GET /audit-events` | `administrator`, `records_manager` | Auditoría de la organización. |
+| `GET /dashboard` | Autenticado | Conteos de expedientes, documentos, jobs y actividad reciente. |
 
-La búsqueda `keyword` usa MySQL. `semantic` responde `503` hasta habilitar pgvector y conectar embeddings. `hybrid` usa MySQL si el índice está deshabilitado y cambia a pgvector cuando está habilitado; todavía no fusiona scores léxicos y vectoriales.
+`POST /search` acepta `query`, `mode` (`keyword`, `semantic` o `hybrid`; por defecto `hybrid`), `caseId`, `categoryId`, `from`, `to`, `page` y `perPage`. `keyword` recorre título, descripción y fragmentos en MySQL. `semantic` calcula el embedding de la consulta y ordena por distancia coseno en pgvector; si el índice o el proveedor de embeddings no están listos, responde `503`. `hybrid`, con el índice encendido, pide los dos rankings y los fusiona con Reciprocal Rank Fusion (RRF): un documento que aparece bien situado en ambas listas queda por encima de uno que solo aparece en una. Con el índice apagado, `hybrid` usa solo MySQL.
+
+El asistente sigue el mismo criterio de evidencia. El cuerpo lleva `question`, y de forma opcional `caseId`, `documentIds` (máximo 50) y `answerMode` (`answer` o `summary`). Sin fragmentos autorizados, la respuesta lo dice y no llama al modelo. Con fragmentos, OpenAI responde solo si está habilitado y hay clave; si no, el respondedor extractivo cita frases de esos fragmentos. Un fallo de OpenAI responde `503` con `llm_provider_failed`. Si pgvector está encendido pero los embeddings no, responde `503` con `embedding_provider_unavailable`. Una respuesta completa incluye `citations[].reference`, documento, versión, página, extracto y relevancia.
 
 ## PostgreSQL y pgvector
 
@@ -69,7 +88,7 @@ Con el rol autorizado para instalar la extensión, habilita el índice idempoten
 php artisan legalcloud:vector-migrate
 ```
 
-El comando crea `vector`, la tabla `document_vectors` y un índice HNSW con distancia coseno. Después configura `VECTOR_DB_ENABLED=true`, `VECTOR_DB_CONNECTION=vector`, `VECTOR_EMBEDDING_DIMENSIONS` y `VECTOR_EMBEDDING_MODEL`. El worker indexa chunks en PostgreSQL después del OCR cuando el almacén vectorial está habilitado. El proveedor de embeddings sigue sin configurarse; hasta integrarlo, la búsqueda semántica devuelve `503` intencionalmente.
+El comando crea `vector`, la tabla `document_vectors` y un índice HNSW con distancia coseno. Después configura `VECTOR_DB_ENABLED=true`, `VECTOR_DB_CONNECTION=vector`, `VECTOR_EMBEDDING_DIMENSIONS` y `VECTOR_EMBEDDING_MODEL`. Esas dimensiones y ese modelo tienen que coincidir con `OPENAI_EMBEDDING_MODEL` (por defecto `text-embedding-3-small`, 1536 dimensiones). El worker indexa los fragmentos en PostgreSQL después de la extracción cuando el almacén vectorial está habilitado. Para que el índice se llene también hace falta `LEGALCLOUD_EMBEDDINGS_ENABLED=true`, `LEGALCLOUD_EMBEDDINGS_PROVIDER=openai` y `OPENAI_API_KEY`. Sin esa clave, el job de embedding queda `failed` con `embedding_provider_unavailable` y la búsqueda semántica responde `503`. El texto OCR ya indexado en MySQL sigue buscable por palabras.
 
 La cuenta de aplicación solo necesita permisos sobre sus tablas en `legalcloud_vectors`; reserva la instalación de extensiones para el rol de administración de la base. El índice no almacena documentos como fuente de verdad: autorización, versión vigente y metadatos se vuelven a comprobar en MySQL al servir los resultados.
 
@@ -83,11 +102,11 @@ Desarrollo local con `QUEUE_CONNECTION=database`:
 php artisan queue:work --queue=document-processing,default
 ```
 
-OCR se procesa fuera de HTTP. Sin proveedor, el job queda `failed` con `ocr_provider_unavailable`. Implementa `App\Domain\AI\Contracts\OcrProvider` y cambia su binding para conectar OCR real. `EmbeddingProvider` y `LlmProvider` aíslan sus proveedores.
+La extracción se procesa fuera de HTTP. `LEGALCLOUD_OCR_PROVIDER=native` (el valor por defecto) lee la capa de texto de PDF y el XML de DOCX, parte el texto en fragmentos solapados y marca el documento como `indexed`. No rellena texto que el archivo no contenga. PNG, JPG, TIFF, PDF escaneados sin texto y DOC binario dejan el job en `failed` con `ocr_provider_unavailable`. Para esos formatos implementa `App\Domain\AI\Contracts\OcrProvider` y cambia `LEGALCLOUD_OCR_PROVIDER`. `EmbeddingProvider` y `LlmProvider` aíslan sus llamadas a OpenAI.
 
 ## LLM y privacidad
 
-El proveedor integrado es **OpenAI Responses API**, modelo **`gpt-4.1-mini`**, usando el cliente HTTP de Laravel. La integración está desactivada por defecto (`LEGALCLOUD_LLM_ENABLED=false`) y no contiene una API key. Para habilitarla, configura `OPENAI_API_KEY` en `.env`, confirma que tu organización autoriza el envío de fragmentos documentales a OpenAI y establece `LEGALCLOUD_LLM_ENABLED=true`. `OPENAI_MODEL` permite cambiar de modelo y `OPENAI_BASE_URL` configurar un endpoint compatible.
+Sin clave externa, `ExtractiveLlmProvider` responde solo con frases de los fragmentos autorizados y las cita como `[S#]`. No inventa normas ni páginas. OpenAI Responses API, modelo **`gpt-4.1-mini`**, se usa únicamente con `LEGALCLOUD_LLM_ENABLED=true`, `LEGALCLOUD_LLM_PROVIDER=openai` y `OPENAI_API_KEY`. `OPENAI_MODEL` cambia el modelo y `OPENAI_BASE_URL` el endpoint. La interfaz arranca en modo API (`LEGALCLOUD_API_MODE=api`) y exige iniciar sesión.
 
 Solo se envían hasta cinco fragmentos relevantes, limitados a documentos de la organización, filtros de la consulta y versión actual; el prompt exige tratar el texto documental como dato no confiable y citar fuentes `[S#]`. Si no hay fuentes, no se invoca el LLM. Los errores HTTP/red se convierten en 503 sin revelar respuestas upstream ni credenciales. La prueba del cliente usa HTTP fakes; no se ha realizado una llamada real porque no hay clave configurada.
 

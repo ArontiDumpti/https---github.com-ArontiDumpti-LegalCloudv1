@@ -142,7 +142,7 @@ class ApiV1Test extends TestCase
         Queue::assertPushed(ProcessDocumentOcr::class);
     }
 
-    public function test_assistant_query_is_audited_and_reports_unconfigured_llm(): void
+    public function test_assistant_query_is_audited_and_answers_from_authorized_text(): void
     {
         $organization = $this->createOrganization();
         $user = $this->createUser($organization, 'consultant');
@@ -158,9 +158,14 @@ class ApiV1Test extends TestCase
             'title' => 'Contratación pública',
         ])->assertCreated()->json('data.id');
 
-        $this->withToken($token)->postJson("/api/v1/assistant/conversations/{$conversation}/messages", [
+        $answer = $this->withToken($token)->postJson("/api/v1/assistant/conversations/{$conversation}/messages", [
             'question' => '¿Qué requisitos establece la norma?',
-        ])->assertStatus(503)->assertJsonPath('code', 'llm_provider_unavailable');
+        ])->assertOk()
+            ->assertJsonPath('status', 'completed')
+            ->assertJsonPath('citations.0.reference', 1);
+
+        $this->assertStringContainsString('quince días hábiles', $answer->json('content'));
+        $this->assertStringContainsString('[S1]', $answer->json('content'));
 
         $storedQuestion = AssistantMessage::query()->where('conversation_id', $conversation)->where('role', 'user')->firstOrFail();
         $this->assertSame('¿Qué requisitos establece la norma?', $storedQuestion->content);

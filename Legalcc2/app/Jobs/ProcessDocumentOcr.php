@@ -3,11 +3,14 @@
 namespace App\Jobs;
 
 use App\Domain\AI\Contracts\OcrProvider;
+use App\Domain\AI\OcrExtractionFailed;
 use App\Domain\AI\ProviderNotConfigured;
+use App\Domain\Documents\DocumentChunker;
 use App\Models\Document;
 use App\Models\DocumentChunk;
 use App\Models\DocumentVersion;
 use App\Models\ProcessingJob;
+use App\Models\UserNotification;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -47,31 +50,46 @@ class ProcessDocumentOcr implements ShouldQueue
             @chmod($temporaryPath, 0600);
 
             $result = $ocr->extract($temporaryPath, $version->mime_type);
+            if (trim($result['text']) === '') {
+                throw new OcrExtractionFailed('No se encontró texto extraíble.');
+            }
             $version->update(['extracted_text' => $result['text']]);
 
-            // Persist provider-neutral chunks now; embeddings can be added without changing OCR storage.
-            foreach ($result['pages'] as $page => $content) {
-                foreach (array_chunk(preg_split('/\s+/u', trim($content)) ?: [], 240) as $index => $words) {
-                    if ($words === []) {
-                        continue;
-                    }
-                    DocumentChunk::query()->create([
-                        'document_version_id' => $version->id,
-                        'chunk_index' => $page * 10000 + $index,
-                        'page' => $page + 1,
-                        'content' => implode(' ', $words),
-                    ]);
-                }
+            DocumentChunk::query()->where('document_version_id', $version->id)->delete();
+            foreach ((new DocumentChunker())->fromPages($result['pages']) as $chunk) {
+                DocumentChunk::query()->create([
+                    'document_version_id' => $version->id,
+                    'chunk_index' => $chunk['chunk_index'],
+                    'page' => $chunk['page'],
+                    'content' => $chunk['content'],
+                ]);
             }
 
             $job->update(['status' => 'completed', 'progress' => 100, 'result_text' => $result['text'], 'completed_at' => now()]);
             Document::query()->whereKey($job->document_id)->update(['status' => 'indexed']);
+            $this->notifyUploader($job, $version, 'OCR completado', 'El documento ya se puede consultar.');
             if (config('legalcloud.vector.enabled')) {
-                IndexDocumentEmbeddings::dispatch($version->id);
+                $embeddingJob = ProcessingJob::query()->create([
+                    'organization_id' => $job->organization_id,
+                    'document_id' => $job->document_id,
+                    'document_version_id' => $version->id,
+                    'type' => 'embedding',
+                    'status' => 'queued',
+                    'progress' => 0,
+                ]);
+                try {
+                    IndexDocumentEmbeddings::dispatch($version->id, $embeddingJob->id);
+                } catch (Throwable) {
+                    // The embedding job records its own failure. OCR text stays indexed.
+                }
             }
         } catch (ProviderNotConfigured) {
             $job->update(['status' => 'failed', 'progress' => 0, 'error_code' => 'ocr_provider_unavailable', 'completed_at' => now()]);
             Document::query()->whereKey($job->document_id)->update(['status' => 'failed']);
+        } catch (OcrExtractionFailed) {
+            $job->update(['status' => 'failed', 'progress' => 0, 'error_code' => 'ocr_no_text', 'completed_at' => now()]);
+            Document::query()->whereKey($job->document_id)->update(['status' => 'failed']);
+            $this->notifyUploader($job, $version, 'OCR sin texto', 'No se encontró texto extraíble en el documento.');
         } finally {
             if (is_string($temporaryPath) && is_file($temporaryPath)) {
                 unlink($temporaryPath);
@@ -88,5 +106,22 @@ class ProcessDocumentOcr implements ShouldQueue
 
         $job->update(['status' => 'failed', 'error_code' => 'ocr_processing_failed', 'completed_at' => now()]);
         Document::query()->whereKey($job->document_id)->update(['status' => 'failed']);
+    }
+
+    private function notifyUploader(ProcessingJob $job, DocumentVersion $version, string $title, string $body): void
+    {
+        if (! is_string($version->uploaded_by) || $version->uploaded_by === '') {
+            return;
+        }
+
+        UserNotification::query()->create([
+            'organization_id' => $job->organization_id,
+            'user_id' => $version->uploaded_by,
+            'type' => 'document_processing',
+            'title' => $title,
+            'body' => $body,
+            'resource_type' => 'document',
+            'resource_id' => $job->document_id,
+        ]);
     }
 }

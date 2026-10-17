@@ -14,6 +14,16 @@ class VectorIndexService
 {
     public function __construct(private readonly EmbeddingProvider $embeddings) {}
 
+    public function forgetVersion(string $documentVersionId): void
+    {
+        if (! config('legalcloud.vector.enabled')) {
+            return;
+        }
+
+        DB::connection(config('legalcloud.vector.connection'))
+            ->delete('DELETE FROM document_vectors WHERE document_version_id = ?', [$documentVersionId]);
+    }
+
     public function index(DocumentChunk $chunk): void
     {
         if (! config('legalcloud.vector.enabled')) {
@@ -22,7 +32,7 @@ class VectorIndexService
 
         $version = $chunk->version()->with('document')->firstOrFail();
         $document = $version->document;
-        if (! $document) {
+        if (! $document || trim($chunk->content) === '') {
             return;
         }
 
@@ -71,7 +81,7 @@ class VectorIndexService
     }
 
     /** @return array{data: list<array<string, mixed>>, meta: array<string, int>} */
-    public function search(string $query, string $organizationId, array $filters, int $page, int $perPage): array
+    public function search(string $query, string $organizationId, array $filters, int $page, int $perPage, bool $bestChunkPerDocument = true): array
     {
         if (! config('legalcloud.vector.enabled')) {
             throw new ProviderNotConfigured('PostgreSQL vector search is disabled.');
@@ -104,6 +114,7 @@ class VectorIndexService
 
         $bindings[] = $perPage;
         $bindings[] = ($page - 1) * $perPage;
+        $rankFilter = $bestChunkPerDocument ? 'WHERE document_rank = 1' : '';
         $rows = DB::connection(config('legalcloud.vector.connection'))->select(
             'WITH query_embedding AS (SELECT ?::vector AS value),
             ranked_matches AS (
@@ -122,7 +133,7 @@ class VectorIndexService
                 SELECT document_id, document_version_id, excerpt, content_encryption_version, page, score, distance,
                     COUNT(*) OVER() AS total_count
                 FROM ranked_matches
-                WHERE document_rank = 1
+                '.$rankFilter.'
             )
             SELECT document_id, document_version_id, excerpt, content_encryption_version, page, score, total_count
             FROM best_matches

@@ -38,7 +38,14 @@ const users = [
 	{ initials: 'LT', name: 'Lucía Torres', email: 'lucia@navarro.legal', role: 'Especialista / analista', status: 'Activo' },
 	{ initials: 'AR', name: 'Andrés Ríos', email: 'andres@navarro.legal', role: 'Usuario consultor', status: 'Invitado' },
 ];
-const state = { view: 'dashboard', filter: 'all', query: '', searchHits: null, conversationId: null, chat: [] };
+const sessionKey = 'legalcloud.session';
+const roleLabel = { administrator: 'Administrador', records_manager: 'Responsable documental', analyst: 'Especialista / analista', consultant: 'Usuario consultor' };
+const state = { view: 'dashboard', filter: 'all', query: '', searchHits: null, conversationId: null, chat: [], user: null, organization: null, metrics: null, activity: [], notifications: [] };
+const readSession = () => { try { return JSON.parse(sessionStorage.getItem(sessionKey) || 'null'); } catch { return null; } };
+const writeSession = (session) => sessionStorage.setItem(sessionKey, JSON.stringify(session));
+const clearSession = () => { sessionStorage.removeItem(sessionKey); state.user = null; state.organization = null; };
+const formatWhen = (value) => { const date = new Date(value || ''); return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); };
+const canWrite = () => apiMode === 'demo' || ['administrator', 'records_manager', 'analyst'].includes(state.user?.role);
 const names = { dashboard: 'Resumen', cases: 'Expedientes', documents: 'Documentos', search: 'Búsqueda inteligente', assistant: 'Asistente IA', users: 'Usuarios y roles', audit: 'Auditoría' };
 const statusName = { indexed: 'Indexado', uploaded: 'Cargado', processing: 'Procesando', review: 'En revisión', open: 'Abierto', in_review: 'En revisión', closed: 'Cerrado', draft: 'Borrador', failed: 'Error', archived: 'Archivado' };
 const pill = (status) => `<span class="status-pill ${escape(status)}">${escape(statusName[status] || status)}</span>`;
@@ -50,38 +57,68 @@ function drawIcons(scope = document) {
 		if (paths[name]) node.innerHTML = icon(name);
 	});
 }
+function showAuth(visible) {
+	const gate = document.querySelector('[data-auth-gate]');
+	const shell = document.querySelector('.app-shell');
+	if (gate) gate.hidden = !visible;
+	if (shell) shell.hidden = visible;
+}
+function paintChrome() {
+	const organization = state.organization?.name || 'Tu organización';
+	const user = state.user;
+	document.querySelector('[data-workspace-name]').textContent = organization;
+	document.querySelector('[data-org-label]').textContent = organization;
+	document.querySelector('[data-workspace-avatar]').textContent = organization.slice(0, 1).toUpperCase();
+	document.querySelector('[data-profile-name]').textContent = user?.name || 'Cuenta';
+	document.querySelector('[data-profile-role]').textContent = roleLabel[user?.role] || 'Sesión';
+	document.querySelector('[data-profile-avatar]').textContent = user?.name ? initials(user.name) : 'LC';
+	document.querySelector('[data-case-count]').textContent = String(cases.length);
+	document.querySelector('[data-today]').textContent = new Date().toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'short' });
+	const logout = document.querySelector('[data-logout]');
+	if (logout) logout.hidden = apiMode === 'demo';
+	const unread = state.notifications.filter((item) => !item.readAt).length;
+	document.querySelector('[data-notification-count]').textContent = unread ? `${unread} nuevas` : 'Al día';
+	document.querySelector('[data-notification-dot]') || document.querySelector('.notification-dot')?.toggleAttribute('hidden', apiMode !== 'demo' && unread === 0);
+	const list = document.querySelector('[data-notification-list]');
+	if (list && apiMode !== 'demo') {
+		list.innerHTML = state.notifications.length ? state.notifications.map((item) => `<div class="notification-item"><span class="notification-icon mint">${icon('scan')}</span><span><strong>${escape(item.title)}</strong><small>${escape(item.body || formatWhen(item.createdAt))}</small></span></div>`).join('') : '<div class="empty-state">No hay notificaciones.</div>';
+	}
+}
 async function request(path, options = {}) {
-	const response = await fetch(`${apiBase}${path}`, { ...options, headers: { Accept: 'application/json', ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...options.headers } });
+	const headers = { Accept: 'application/json', ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...options.headers };
+	const token = readSession()?.accessToken;
+	if (token) headers.Authorization = `Bearer ${token}`;
+	const response = await fetch(`${apiBase}${path}`, { ...options, headers });
+	if (response.status === 401 && apiMode !== 'demo') { clearSession(); showAuth(true); }
 	if (!response.ok) throw new Error(`API ${response.status}`);
 	return response.status === 204 ? null : response.json();
 }
 async function loadApiCollections() {
-	if (apiMode === 'demo') return;
-	try {
-		const [caseResponse, documentResponse, userResponse] = await Promise.all([
-			request('/cases?perPage=100'), request('/documents?perPage=100'), request('/users?perPage=100'),
-		]);
-		cases.splice(0, cases.length, ...caseResponse.data.map((item) => ({
-			...item, documents: item.documentCount, owner: item.ownerId || 'Equipo legal', updated: item.updatedAt || '—',
-		})));
-		documents.splice(0, documents.length, ...documentResponse.data.map((item) => ({
-			...item,
-			caseName: cases.find((caseItem) => caseItem.id === item.caseId)?.title || 'Expediente',
-			type: item.mimeType?.includes('word') ? 'DOCX' : item.mimeType?.includes('spreadsheet') ? 'XLS' : 'PDF',
-			date: item.createdAt || '—',
-			size: item.sizeBytes ? `${Math.round(item.sizeBytes / 1024)} KB` : '—',
-		})));
-		users.splice(0, users.length, ...userResponse.data.map((item) => ({
-			initials: initials(item.name), name: item.name, email: item.email,
-			role: ({ administrator: 'Administradora', records_manager: 'Responsable documental', analyst: 'Especialista / analista', consultant: 'Usuario consultor' })[item.role] || item.role,
-			status: item.status === 'active' ? 'Activo' : item.status === 'invited' ? 'Invitado' : 'Suspendido',
-		})));
-	} catch {
-		cases.length = 0;
-		documents.length = 0;
-		users.length = 0;
-		toast('No se pudo conectar con el API. Revisa la configuración del backend.');
+	if (apiMode === 'demo' || !readSession()?.accessToken) return;
+	const [caseResult, documentResult, userResult, dashboardResult, auditResult, notificationResult] = await Promise.allSettled([
+		request('/cases?perPage=100'), request('/documents?perPage=100'), request('/users?perPage=100'), request('/dashboard'), request('/audit-events?perPage=8'), request('/notifications?perPage=8'),
+	]);
+	if (caseResult.status === 'rejected' && documentResult.status === 'rejected') {
+		toast('No se pudo conectar con el API. Revisa la sesión y el backend.');
+		return;
 	}
+	if (caseResult.status === 'fulfilled') cases.splice(0, cases.length, ...(caseResult.value.data || []).map((item) => ({
+		...item, documents: item.documentCount || 0, owner: users.find((user) => user.id === item.ownerId)?.name || 'Equipo legal', updated: formatWhen(item.updatedAt),
+	})));
+	if (userResult.status === 'fulfilled') users.splice(0, users.length, ...(userResult.value.data || []).map((item) => ({
+		id: item.id, initials: initials(item.name), name: item.name, email: item.email, role: roleLabel[item.role] || item.role,
+		status: item.status === 'active' ? 'Activo' : item.status === 'invited' ? 'Invitado' : 'Suspendido',
+	})));
+	if (caseResult.status === 'fulfilled') cases.forEach((item) => { item.owner = users.find((user) => user.id === item.ownerId)?.name || 'Equipo legal'; });
+	if (documentResult.status === 'fulfilled') documents.splice(0, documents.length, ...(documentResult.value.data || []).map((item) => ({
+		...item, caseName: cases.find((caseItem) => caseItem.id === item.caseId)?.title || 'Expediente',
+		type: item.mimeType?.includes('word') ? 'DOCX' : item.mimeType?.includes('image') ? 'IMG' : 'PDF',
+		date: formatWhen(item.createdAt), size: item.sizeBytes ? `${Math.max(1, Math.round(item.sizeBytes / 1024))} KB` : '—', owner: 'Equipo legal',
+	})));
+	state.metrics = dashboardResult.status === 'fulfilled' ? dashboardResult.value : state.metrics;
+	state.activity = auditResult.status === 'fulfilled' ? (auditResult.value.data || []) : [];
+	state.notifications = notificationResult.status === 'fulfilled' ? (notificationResult.value.data || []) : [];
+	paintChrome();
 	render();
 }
 function heading(eyebrow, title, subtitle, actions = '') { return `<div class="page-heading"><div><p class="eyebrow">${eyebrow}</p><h1>${title}</h1><p>${subtitle}</p></div><div class="heading-actions">${actions}</div></div>`; }
@@ -90,7 +127,21 @@ function rows(list) {
 	if (!list.length) return '<tr><td colspan="5"><div class="empty-state">No hay documentos para mostrar.</div></td></tr>';
 	return list.map((doc) => `<tr><td><div class="file-cell"><span class="file-type ${doc.type === 'DOCX' ? 'doc' : doc.type === 'XLS' ? 'img' : ''}">${escape(doc.type)}</span><span class="file-copy"><strong>${escape(doc.title)}</strong><small>${escape(doc.caseName || doc.caseId)}</small></span></div></td><td>${pill(doc.status)}</td><td>${escape(doc.date || 'Hoy')}</td><td>${escape(doc.size || '—')}</td><td><button class="icon-button" aria-label="Más opciones">${icon('more')}</button></td></tr>`).join('');
 }
+function renderLiveDashboard() {
+	const metrics = state.metrics || {};
+	const indexed = metrics.documents?.indexed ?? documents.filter((doc) => doc.status === 'indexed').length;
+	const queued = (metrics.processing?.queued || 0) + (metrics.documents?.pendingOcr || 0);
+	const failed = metrics.processing?.failed || 0;
+	const activity = state.activity.length ? state.activity.map((event) => {
+		const actor = users.find((user) => user.id === event.actorId)?.name || 'Usuario';
+		return `<div class="activity-item"><span class="activity-marker">${icon('activity')}</span><div class="activity-copy"><p><strong>${escape(actor)}</strong> ${escape(event.action)}</p><small>${escape(formatWhen(event.occurredAt))}</small></div></div>`;
+	}).join('') : '<div class="empty-state">Todavía no hay actividad registrada.</div>';
+	page.innerHTML = `${heading('ESPACIO DE TRABAJO', `Hola, ${escape((state.user?.name || 'equipo').split(' ')[0])}`, 'Cifras de los expedientes y documentos de tu organización.', actions())}
+	<section class="kpi-grid"><article class="kpi"><div class="kpi-label">Expedientes<span class="kpi-icon">${icon('folder')}</span></div><div class="kpi-value">${metrics.cases?.total ?? cases.length}</div><div class="kpi-caption">${metrics.cases?.open || 0} abiertos</div></article><article class="kpi"><div class="kpi-label">Documentos indexados<span class="kpi-icon amber">${icon('file')}</span></div><div class="kpi-value">${indexed}</div><div class="kpi-caption">${metrics.documents?.total ?? documents.length} en total</div></article><article class="kpi"><div class="kpi-label">Extracción en cola<span class="kpi-icon coral">${icon('scan')}</span></div><div class="kpi-value">${String(queued).padStart(2, '0')}</div><div class="kpi-caption">${failed} con error</div></article><article class="kpi"><div class="kpi-label">Notificaciones<span class="kpi-icon">${icon('bell')}</span></div><div class="kpi-value">${state.notifications.length}</div><div class="kpi-caption">de tu usuario</div></article></section>
+	<div class="dashboard-grid"><div class="content-column"><section class="panel"><div class="panel-heading"><div><h2>Documentos recientes</h2><p>Últimos archivos de tu organización</p></div><button class="panel-link" data-nav="documents">Ver biblioteca ${icon('arrowRight')}</button></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Documento</th><th>Estado</th><th>Fecha</th><th>Tamaño</th><th></th></tr></thead><tbody>${rows(documents.slice(0, 4))}</tbody></table></div></section><section class="panel"><div class="panel-heading"><div><h2>Actividad reciente</h2><p>Operaciones registradas en tu espacio</p></div><button class="panel-link" data-nav="audit">Ver auditoría ${icon('arrowRight')}</button></div><div class="activity-list">${activity}</div></section></div><div class="insight-column"><section class="panel assistant-panel"><div class="panel-heading"><div class="assistant-title"><span class="assistant-orb">${icon('sparkles')}</span><div><h2>Pregunta a Legal AI</h2><p>Respuestas con fuentes verificables</p></div></div><span class="assistant-tag">RAG</span></div><div class="assistant-body"><p class="assistant-greeting">Tu documentación, en conversación.</p><p class="assistant-hint">Cada respuesta cita los fragmentos autorizados que la sustentan.</p><form class="assistant-input-wrap" data-quick-ask><input name="question" aria-label="Pregunta a Legal AI" placeholder="Escribe una pregunta..." required><button class="send-button" aria-label="Enviar pregunta">${icon('send')}</button></form><p class="assistant-footnote">${icon('shield')}Solo consulta documentos con acceso autorizado</p></div></section><section class="panel"><div class="panel-heading"><div><h2>Procesamiento</h2><p>Estado de la cola documental</p></div></div><div class="processing-row"><span class="processing-symbol">${icon('scan')}</span><span class="processing-copy"><strong>Extracción de texto</strong><small>${queued ? 'Documentos en proceso' : 'Sin pendientes'}</small></span><span class="processing-count">${String(queued).padStart(2, '0')}</span></div><div class="processing-row"><span class="processing-symbol">${icon('sparkles')}</span><span class="processing-copy"><strong>Indexados</strong><small>Listos para consultar</small></span><span class="processing-count">${indexed}</span></div></section></div></div>`;
+}
 function dashboard() {
+	if (apiMode !== 'demo') return renderLiveDashboard();
 	page.innerHTML = `${heading('JUEVES, 16 DE OCTUBRE DE 2026', 'Buenos días, Mariana', 'Aquí tienes el pulso documental de tu organización.', actions())}
 	<section class="kpi-grid"><article class="kpi"><div class="kpi-label">Expedientes activos<span class="kpi-icon">${icon('folder')}</span></div><div class="kpi-value">24 <span class="kpi-trend">↗ 12%</span></div><div class="kpi-caption">vs. mes anterior</div></article><article class="kpi"><div class="kpi-label">Documentos indexados<span class="kpi-icon amber">${icon('file')}</span></div><div class="kpi-value">1.284 <span class="kpi-trend">↗ 8,4%</span></div><div class="kpi-caption">92 documentos este mes</div></article><article class="kpi"><div class="kpi-label">Procesos OCR<span class="kpi-icon coral">${icon('scan')}</span></div><div class="kpi-value">07 <span class="kpi-trend down">2 pendientes</span></div><div class="kpi-caption">tiempo medio: 34 segundos</div></article><article class="kpi"><div class="kpi-label">Consultas a Legal AI<span class="kpi-icon">${icon('sparkles')}</span></div><div class="kpi-value">186 <span class="kpi-trend">↗ 18%</span></div><div class="kpi-caption">esta semana</div></article></section>
 	<div class="dashboard-grid"><div class="content-column">
@@ -115,15 +166,23 @@ function renderDocuments() {
 function renderSearch() {
 	const query = state.query.trim();
 	const results = state.searchHits || documents.filter((doc) => !query || `${doc.title} ${doc.caseName}`.toLowerCase().includes(query.toLowerCase()) || ['doc-1','doc-2'].includes(doc.id)).slice(0,4);
-	page.innerHTML = `${heading('CONSULTA TRANSVERSAL','Encuentra lo importante','Busca en el contenido y los metadatos de tus documentos.')}<form class="search-hero" data-search-form>${icon('search')}<input name="query" type="search" placeholder="Ej. requisitos para contratar servicios públicos" aria-label="Consulta de búsqueda" value="${escape(query)}"><button class="button button-primary" type="submit">${icon('search')}<span>Buscar</span></button></form><div class="search-filters"><span class="filter-chip">${icon('folder')}Todos los expedientes</span><span class="filter-chip">${icon('sparkles')}Búsqueda semántica</span><span class="filter-chip">${icon('calendar')}Últimos 12 meses</span></div><div class="search-results"><p class="eyebrow">${query?`${results.length} RESULTADOS RELEVANTES`:'RESULTADOS SUGERIDOS'}</p>${results.map((doc,index)=>`<article class="search-result"><div class="result-meta"><span class="file-type">${escape(doc.type)}</span><span>${escape(doc.caseName || 'Documento')}</span><span>·</span><span>Versión ${doc.currentVersion?.versionNumber || (index?1:3)}</span></div><h3>${escape(doc.title)}</h3><p>${escape(doc.excerpt || (index?'La documentación aplicable establece las condiciones, plazos y requisitos que deben verificarse antes de iniciar el procedimiento administrativo correspondiente.':'Para iniciar un procedimiento de contratación, la unidad requirente deberá acreditar la disponibilidad presupuestaria, definir los criterios de evaluación y publicar la convocatoria conforme a los plazos establecidos en el reglamento.'))}</p><div class="result-footer">${icon('file')}Página ${doc.page || index+4}<span>·</span>Relevancia ${doc.score ? Math.round(doc.score*100) : 96-index*7}%</div></article>`).join('')}</div>`;
+	page.innerHTML = `${heading('CONSULTA TRANSVERSAL','Encuentra lo importante','Busca en el contenido y los metadatos de tus documentos.')}<form class="search-hero" data-search-form>${icon('search')}<input name="query" type="search" placeholder="Ej. requisitos para contratar servicios públicos" aria-label="Consulta de búsqueda" value="${escape(query)}"><button class="button button-primary" type="submit">${icon('search')}<span>Buscar</span></button></form><div class="search-filters"><span class="filter-chip">${icon('folder')}Todos los expedientes</span><span class="filter-chip">${icon('sparkles')}Búsqueda semántica</span><span class="filter-chip">${icon('calendar')}Últimos 12 meses</span></div><div class="search-results"><p class="eyebrow">${query?`${results.length} RESULTADOS RELEVANTES`:'RESULTADOS SUGERIDOS'}</p>${results.map((doc,index)=>`<article class="search-result"><div class="result-meta"><span class="file-type">${escape(doc.type)}</span><span>${escape(doc.caseName || 'Documento')}</span><span>·</span><span>Versión ${doc.currentVersion?.versionNumber || (index?1:3)}</span></div><h3>${escape(doc.title)}</h3><p>${escape(doc.excerpt || (apiMode === 'demo' ? 'Texto de ejemplo para la demostración.' : 'Este resultado no incluye un extracto.'))}</p><div class="result-footer">${icon('file')}Página ${doc.page || '—'}<span>·</span>${doc.score ? `Relevancia ${Math.round(doc.score * 100)}%` : 'Coincidencia documental'}</div></article>`).join('')}</div>`;
 }
 function renderAssistant() {
-	page.innerHTML = `${heading('ASISTENTE DOCUMENTAL','Legal AI','Respuestas fundamentadas en las fuentes de tu organización.')}<div class="chat-layout"><section class="panel chat-panel"><div class="chat-heading"><div class="chat-heading-copy"><span class="assistant-orb">${icon('sparkles')}</span><div><h2>Consulta documental</h2><small>Fuentes autorizadas · respuestas trazables</small></div></div><button class="button button-quiet" data-chat-clear>Nueva consulta</button></div><div class="chat-history" data-chat-history>${state.chat.length?state.chat.map((message)=>`<div class="chat-message ${message.role}"><p>${escape(message.text)}</p>${message.citation?`<div class="citation-card">${icon('file')}<span><strong>${escape(message.citation.title)}</strong>${escape(message.citation.detail)}</span></div>`:''}</div>`).join(''):`<div class="chat-empty"><span class="assistant-orb">${icon('sparkles')}</span><h3>¿Qué necesitas encontrar?</h3><p>Pregunta sobre requisitos, compara versiones o resume un expediente. Legal AI responderá con citas a los documentos consultados.</p></div>`}</div><form class="chat-composer" data-chat-form><textarea name="question" rows="2" aria-label="Tu pregunta" placeholder="Pregunta sobre tus documentos..." required></textarea><button class="send-button" aria-label="Enviar consulta">${icon('send')}</button></form></section><aside class="panel chat-sources"><h3>Fuentes consultables</h3><p>El asistente busca solo en documentos a los que tienes acceso.</p><div class="source-item">${icon('file')}<span><strong>1.284 documentos indexados</strong><small>En 24 expedientes activos</small></span></div><div class="source-item">${icon('shield')}<span><strong>Acceso por organización</strong><small>Permisos respetados en cada consulta</small></span></div></aside></div>`;
+	page.innerHTML = `${heading('ASISTENTE DOCUMENTAL','Legal AI','Respuestas fundamentadas en las fuentes de tu organización.')}<div class="chat-layout"><section class="panel chat-panel"><div class="chat-heading"><div class="chat-heading-copy"><span class="assistant-orb">${icon('sparkles')}</span><div><h2>Consulta documental</h2><small>Fuentes autorizadas · respuestas trazables</small></div></div><button class="button button-quiet" data-chat-clear>Nueva consulta</button></div><div class="chat-history" data-chat-history>${state.chat.length?state.chat.map((message)=>`<div class="chat-message ${message.role}"><p>${escape(message.text)}</p>${(message.citations || (message.citation ? [message.citation] : [])).map((citation)=>`<div class="citation-card">${icon('file')}<span><strong>${escape(citation.title)}</strong>${escape(citation.detail)}</span></div>`).join('')}</div>`).join(''):`<div class="chat-empty"><span class="assistant-orb">${icon('sparkles')}</span><h3>¿Qué necesitas encontrar?</h3><p>Pregunta sobre requisitos, compara versiones o resume un expediente. Legal AI responderá con citas a los documentos consultados.</p></div>`}</div><form class="chat-composer" data-chat-form><textarea name="question" rows="2" aria-label="Tu pregunta" placeholder="Pregunta sobre tus documentos..." required></textarea><button class="send-button" aria-label="Enviar consulta">${icon('send')}</button></form></section><aside class="panel chat-sources"><h3>Fuentes consultables</h3><p>El asistente busca solo en documentos a los que tienes acceso.</p><div class="source-item">${icon('file')}<span><strong>${apiMode === 'demo' ? '1.284 documentos indexados' : `${documents.filter((doc) => doc.status === 'indexed').length} documentos indexados`}</strong><small>${apiMode === 'demo' ? 'En 24 expedientes activos' : `En ${cases.length} expedientes`}</small></span></div><div class="source-item">${icon('shield')}<span><strong>Acceso por organización</strong><small>Permisos respetados en cada consulta</small></span></div></aside></div>`;
 }
 function renderUsers() {
 	page.innerHTML = `${heading('ADMINISTRACIÓN','Usuarios y roles','Controla quién accede a los expedientes de tu organización.',`<button class="button button-primary" data-action="invite-user">${icon('users')}<span>Invitar usuario</span></button>`)}<section class="panel list-panel"><div class="table-wrap"><table class="data-table"><thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th></th></tr></thead><tbody>${users.map((user)=>`<tr><td><span class="owner-chip"><span class="owner-avatar">${user.initials}</span><span class="file-copy"><strong>${escape(user.name)}</strong><small>${escape(user.email)}</small></span></span></td><td><span class="user-table-role">${escape(user.role)}</span></td><td>${pill(user.status==='Activo'?'indexed':'review')}</td><td><button class="icon-button" aria-label="Más opciones">${icon('more')}</button></td></tr>`).join('')}</tbody></table></div></section>`;
 }
 function renderAudit() {
+	if (apiMode !== 'demo') {
+		const rowsHtml = state.activity.length ? state.activity.map((event) => {
+			const actor = users.find((user) => user.id === event.actorId)?.name || 'Usuario';
+			return `<div class="activity-item"><span class="activity-marker">${icon('activity')}</span><div class="activity-copy"><p><strong>${escape(actor)}</strong> ${escape(event.action)}</p><small>${escape(event.resourceType || 'recurso')} · ${escape(formatWhen(event.occurredAt))}</small></div></div>`;
+		}).join('') : '<div class="empty-state">No hay eventos de auditoría para tu rol.</div>';
+		page.innerHTML = `${heading('TRAZABILIDAD','Registro de auditoría','Historial de operaciones registradas en tu organización.')}<section class="panel"><div class="activity-list">${rowsHtml}</div></section>`;
+		return;
+	}
 	page.innerHTML = `${heading('TRAZABILIDAD','Registro de auditoría','Historial de operaciones y consultas realizadas en la plataforma.')}<section class="panel"><div class="panel-heading"><div><h2>Actividad reciente</h2><p>Los eventos de auditoría son inmutables.</p></div><button class="button button-quiet">${icon('upload')}<span>Exportar registro</span></button></div><div class="activity-list"><div class="activity-item"><span class="activity-marker">${icon('upload')}</span><div class="activity-copy"><p><strong>Mariana García</strong> cargó Resolución 118/2024 — Requisitos de contratación</p><small>document.uploaded · EXP-2024-018 · 16 oct 2026, 10:42</small></div></div><div class="activity-item"><span class="activity-marker">${icon('sparkles')}</span><div class="activity-copy"><p><strong>Lucía Torres</strong> consultó: “¿Qué requisitos establece la resolución para contratar?”</p><small>assistant.query · 3 fuentes consultadas · 16 oct 2026, 10:06</small></div></div><div class="activity-item"><span class="activity-marker">${icon('check')}</span><div class="activity-copy"><p><strong>Diego Navarro</strong> cambió el estado de un expediente a En revisión</p><small>case.status_changed · EXP-2024-011 · 16 oct 2026, 09:18</small></div></div></div></section>`;
 }
 function render() {
@@ -156,16 +215,19 @@ async function ask(question) {
 				state.conversationId = conversation.data?.id || conversation.id;
 			}
 			const answer = await request(`/assistant/conversations/${state.conversationId}/messages`, { method: 'POST', body: JSON.stringify({ question: clean }) });
-			state.chat[state.chat.length-1] = { role:'assistant', text:answer.content, citation:answer.citations?.[0]?{title:answer.citations[0].title,detail:answer.citations[0].excerpt}:null };
+			const citations = (Array.isArray(answer.citations) ? answer.citations : []).map((item) => ({ title: item.title || 'Documento', detail: `Página ${item.page || '—'} · ${item.excerpt || ''}` }));
+			state.chat[state.chat.length-1] = { role:'assistant', text:answer.content, citations };
 		} catch { state.chat[state.chat.length-1].text='La consulta no pudo completarse. Verifica que el backend y el servicio RAG estén disponibles.'; }
 		render(); return;
 	}
 	window.setTimeout(()=>{state.chat[state.chat.length-1]={role:'assistant',text:'La Resolución 118/2024 establece que la unidad requirente debe acreditar la disponibilidad presupuestaria, definir los criterios de evaluación antes de publicar la convocatoria y conservar constancia de las ofertas recibidas. El reglamento también exige motivar la selección de la propuesta más conveniente.',citation:{title:'Resolución 118/2024 · Artículos 8, 12 y 19',detail:'Páginas 4–6 · versión 3 · Relevancia 96%'}};render();},650);
 }
-document.addEventListener('click',(event)=>{
+document.addEventListener('click',async(event)=>{
 	const nav=event.target.closest('[data-nav]');if(nav)return changeView(nav.dataset.nav);
 	const action=event.target.closest('[data-action]')?.dataset.action;
-	if(action==='new-case')return openDialog('case-modal');if(action==='upload')return openDialog('upload-modal');if(action==='invite-user')return toast('La invitación de usuarios estará disponible al conectar el backend.');
+	if(action==='new-case'||action==='upload'){if(!canWrite())return toast('Tu rol puede consultar documentos, no modificarlos.');if(action==='upload'&&!cases.length)return toast('Crea un expediente antes de cargar un documento.');return openDialog(action==='new-case'?'case-modal':'upload-modal');}
+	if(action==='invite-user'){if(apiMode==='demo')return toast('En el modo de demostración los usuarios son de ejemplo.');if(state.user?.role!=='administrator')return toast('Solo un administrador puede crear usuarios.');return openDialog('user-modal');}
+	if(event.target.closest('[data-logout]')){if(apiMode==='demo')return;try{await request('/auth/logout',{method:'POST'});}catch{}clearSession();cases.length=0;documents.length=0;users.length=0;state.chat=[];state.conversationId=null;showAuth(true);return;}
 	if(event.target.closest('[data-dismiss]'))event.target.closest('dialog').close();
 	if(event.target.closest('[data-menu-toggle]')){document.querySelector('#sidebar').classList.toggle('is-open');document.querySelector('[data-scrim]').classList.toggle('is-visible');}
 	if(event.target.closest('[data-scrim]')){document.querySelector('#sidebar').classList.remove('is-open');document.querySelector('[data-scrim]').classList.remove('is-visible');}
@@ -179,14 +241,22 @@ document.addEventListener('input',(event)=>{
 });
 document.addEventListener('change',(event)=>{if(event.target.matches('[data-status-filter]')){state.filter=event.target.value;render();}});
 document.addEventListener('submit',async(event)=>{
+	if(event.target.matches('[data-login-form]')){
+		event.preventDefault();const form=event.target,error=form.querySelector('[data-login-error]'),payload=Object.fromEntries(new FormData(form));error.hidden=true;
+		try{const response=await fetch(`${apiBase}/auth/login`,{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify(payload)});if(!response.ok)throw new Error('invalid');const session=await response.json();writeSession({accessToken:session.accessToken,user:session.user,organization:session.organization});state.user=session.user;state.organization=session.organization;showAuth(false);paintChrome();await loadApiCollections();}catch{error.textContent='Correo o contraseña incorrectos.';error.hidden=false;}
+	}
+	if(event.target.matches('[data-user-form]')){
+		event.preventDefault();const form=event.target,payload=Object.fromEntries(new FormData(form));
+		try{await request('/users',{method:'POST',body:JSON.stringify(payload)});form.closest('dialog').close();form.reset();toast('Usuario creado.');await loadApiCollections();}catch{toast('No se pudo crear el usuario. Revisa el correo y que la contraseña tenga al menos 12 caracteres.');}
+	}
 	if(event.target.matches('[data-case-form]')){
 		event.preventDefault();const form=event.target,payload=Object.fromEntries(new FormData(form));
-		if(apiMode!=='demo')try{await request('/cases',{method:'POST',body:JSON.stringify(payload)});}catch{return toast('No se pudo crear el expediente. Revisa los datos y el backend.');}
+		if(apiMode!=='demo'){try{await request('/cases',{method:'POST',body:JSON.stringify(payload)});await loadApiCollections();}catch{return toast('No se pudo crear el expediente. Revisa los datos y el backend.');}form.closest('dialog').close();form.reset();toast('Expediente creado correctamente.');return;}
 		cases.unshift({...payload,id:`case-${Date.now()}`,status:'draft',documents:0,owner:'Mariana García',updated:'Ahora'});form.closest('dialog').close();form.reset();toast('Expediente creado correctamente.');if(state.view==='cases')render();
 	}
 	if(event.target.matches('[data-upload-form]')){
-		event.preventDefault();const form=event.target,data=new FormData(form),file=data.get('file');if(file.size>25*1024*1024)return toast('El archivo supera el límite de 25 MB.');
-		if(apiMode!=='demo')try{await request('/documents',{method:'POST',body:data});}catch{return toast('No se pudo cargar el documento. Revisa los datos y el backend.');}
+		event.preventDefault();const form=event.target,data=new FormData(form),file=data.get('file');if(!(file instanceof File)||file.size>25*1024*1024)return toast('El archivo supera el límite de 25 MB.');
+		if(apiMode!=='demo'){try{await request('/documents',{method:'POST',body:data});await loadApiCollections();}catch{return toast('No se pudo cargar el documento. Revisa el expediente y el archivo.');}form.closest('dialog').close();form.reset();toast('Documento cargado. Si tenía texto, ya puedes consultarlo.');return;}
 		const related=cases.find((item)=>item.id===data.get('caseId'));documents.unshift({id:`doc-${Date.now()}`,title:data.get('title'),caseId:data.get('caseId'),caseName:related?.title||'Expediente',type:file.name.split('.').pop().toUpperCase(),status:'processing',date:'Ahora',size:`${Math.max(1,Math.round(file.size/1024))} KB`,owner:'Mariana García'});form.closest('dialog').close();form.reset();toast('Documento cargado. El OCR comenzará en breve.');if(['documents','dashboard'].includes(state.view))render();
 	}
 	if(event.target.matches('[data-search-form]')){
@@ -199,7 +269,14 @@ document.addEventListener('submit',async(event)=>{
 	}
 	if(event.target.matches('[data-quick-ask],[data-chat-form]')){event.preventDefault();const question=new FormData(event.target).get('question');if(event.target.matches('[data-quick-ask]'))changeView('assistant');ask(question);}
 });
-document.querySelector('[data-global-search]').addEventListener('keydown',(event)=>{if(event.key==='Enter'){const query=event.currentTarget.value;changeView('search');state.query=query;render();}});
+document.querySelector('[data-global-search]').addEventListener('keydown',async(event)=>{if(event.key!=='Enter')return;const query=event.currentTarget.value;changeView('search');state.query=query;if(apiMode!=='demo'&&query.trim()){try{const response=await request('/search',{method:'POST',body:JSON.stringify({query,mode:'hybrid'})});state.searchHits=(response.data||[]).map((hit)=>({...hit.document,type:'PDF',caseName:cases.find((item)=>item.id===hit.document.caseId)?.title,excerpt:hit.excerpt,page:hit.page,score:hit.score}));}catch{state.searchHits=[];toast('No se pudo completar la búsqueda.');}}render();});
 document.addEventListener('keydown',(event)=>{if(event.key==='/'&&!['INPUT','TEXTAREA'].includes(document.activeElement.tagName)){event.preventDefault();document.querySelector('[data-global-search]').focus();}if(event.key==='Escape')document.querySelector('[data-notification-popover]').hidden=true;});
-if(apiMode!=='demo'){cases.length=0;documents.length=0;users.length=0;}
-drawIcons();render();loadApiCollections();
+function boot(){
+	drawIcons();
+	if(apiMode==='demo'){showAuth(false);render();return;}
+	cases.length=0;documents.length=0;users.length=0;
+	const session=readSession();
+	if(!session?.accessToken){showAuth(true);return;}
+	state.user=session.user;state.organization=session.organization;showAuth(false);paintChrome();render();loadApiCollections();
+}
+boot();

@@ -30,6 +30,10 @@ class AuthController extends Controller
             'tokenType' => 'Bearer',
             'expiresAt' => $token['expiresAt']->toISOString(),
             'user' => (new UserResource($user))->resolve(),
+            'organization' => [
+                'id' => $user->organization->id,
+                'name' => $user->organization->name,
+            ],
         ]);
     }
 

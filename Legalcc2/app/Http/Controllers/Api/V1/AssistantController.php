@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\AI\EmbeddingProviderFailed;
+use App\Domain\AI\EmbeddingProviderNotConfigured;
 use App\Domain\AI\LlmProviderFailed;
 use App\Domain\AI\ProviderNotConfigured;
 use App\Domain\AI\RagAnswerService;
@@ -64,6 +66,22 @@ class AssistantController extends Controller
                 'caseId' => $data['caseId'] ?? $conversation->case_id,
                 'documentIds' => $data['documentIds'] ?? null,
             ], $data['answerMode'] ?? 'answer');
+        } catch (EmbeddingProviderNotConfigured) {
+            $answer->update(['status' => 'failed', 'error_code' => 'embedding_provider_unavailable']);
+
+            return response()->json([
+                'code' => 'embedding_provider_unavailable',
+                'message' => 'The embedding provider is not configured or enabled.',
+                'data' => (new AssistantMessageResource($answer->load('citations.document')))->resolve(),
+            ], 503);
+        } catch (EmbeddingProviderFailed) {
+            $answer->update(['status' => 'failed', 'error_code' => 'embedding_provider_failed']);
+
+            return response()->json([
+                'code' => 'embedding_provider_failed',
+                'message' => 'The configured embedding provider could not complete the request.',
+                'data' => (new AssistantMessageResource($answer->load('citations.document')))->resolve(),
+            ], 503);
         } catch (ProviderNotConfigured) {
             $answer->update(['status' => 'failed', 'error_code' => 'llm_provider_unavailable']);
 

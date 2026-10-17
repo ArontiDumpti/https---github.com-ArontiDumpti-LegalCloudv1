@@ -3,6 +3,7 @@
 namespace App\Domain\AI;
 
 use App\Domain\AI\Contracts\LlmProvider;
+use App\Domain\Documents\ReciprocalRankFusion;
 use App\Models\DocumentChunk;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -33,28 +34,64 @@ class RagAnswerService
     /** @return list<array{content: string, citation: array<string, mixed>}> */
     private function retrieve(string $question, string $organizationId, array $filters): array
     {
-        if (config('legalcloud.vector.enabled')) {
-            $results = $this->vectors->search($question, $organizationId, $filters, 1, 5);
-
-            return collect($results['data'])->values()->map(function (array $hit, int $index): array {
-                $document = $hit['document'];
-                $version = $document['currentVersion'];
-
-                return [
-                    'content' => $hit['excerpt'],
-                    'citation' => [
-                        'reference' => $index + 1,
-                        'documentId' => $document['id'],
-                        'versionId' => $version['id'],
-                        'title' => $document['title'],
-                        'page' => $hit['page'],
-                        'excerpt' => $hit['excerpt'],
-                        'relevance' => $hit['score'],
-                    ],
-                ];
-            })->all();
+        $lexical = $this->lexicalPassages($question, $organizationId, $filters);
+        if (! config('legalcloud.vector.enabled')) {
+            return $this->finalize($lexical);
         }
 
+        $semantic = $this->semanticPassages($question, $organizationId, $filters);
+        if ($semantic === []) {
+            return $this->finalize($lexical);
+        }
+        if ($lexical === []) {
+            return $this->finalize($semantic);
+        }
+
+        return $this->finalize(ReciprocalRankFusion::fuse(
+            [$semantic, $lexical],
+            fn (array $hit): string => implode('|', [
+                (string) ($hit['citation']['documentId'] ?? ''),
+                (string) ($hit['citation']['page'] ?? ''),
+                md5((string) ($hit['citation']['excerpt'] ?? '')),
+            ]),
+        ));
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function semanticPassages(string $question, string $organizationId, array $filters): array
+    {
+        $results = $this->vectors->search($question, $organizationId, $filters, 1, 20, false);
+
+        return array_values(array_filter(array_map(function (array $hit): ?array {
+            $document = $hit['document'];
+            $version = $document['currentVersion'] ?? null;
+            if ($version instanceof \Illuminate\Http\Resources\Json\JsonResource) {
+                $version = $version->resolve();
+            }
+            if (! is_array($version) || ! isset($version['id'], $document['id'])) {
+                return null;
+            }
+
+            $excerpt = (string) $hit['excerpt'];
+
+            return [
+                'content' => mb_substr($excerpt, 0, 2400),
+                'score' => (float) $hit['score'],
+                'citation' => [
+                    'documentId' => $document['id'],
+                    'versionId' => $version['id'],
+                    'title' => $document['title'],
+                    'page' => $hit['page'],
+                    'excerpt' => mb_substr($excerpt, 0, 800),
+                    'relevance' => (float) $hit['score'],
+                ],
+            ];
+        }, $results['data'])));
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function lexicalPassages(string $question, string $organizationId, array $filters): array
+    {
         $terms = collect(preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($question)) ?: [])
             ->filter(fn (string $term) => mb_strlen($term) >= 3)
             ->unique()->take(10)->values();
@@ -73,7 +110,7 @@ class RagAnswerService
             })
             ->orderBy('id')->limit(5000)->get();
 
-        return $chunks->map(function (DocumentChunk $chunk) use ($terms): array {
+        return $chunks->map(function (DocumentChunk $chunk) use ($terms): ?array {
             $version = $chunk->version;
             $document = $version?->document;
             if (! $version || ! $document) {
@@ -86,23 +123,35 @@ class RagAnswerService
                 return null;
             }
 
+            $score = $matches / max($terms->count(), 1);
+
             return [
                 'content' => mb_substr($content, 0, 2400),
-                'score' => $matches / max($terms->count(), 1),
+                'score' => $score,
                 'citation' => [
                     'documentId' => $document->id,
                     'versionId' => $version->id,
                     'title' => $document->title,
                     'page' => $chunk->page,
                     'excerpt' => mb_substr($content, 0, 800),
-                    'relevance' => $matches / max($terms->count(), 1),
+                    'relevance' => $score,
                 ],
             ];
-        })->filter()->sortByDesc('score')->take(5)->map(function (array $source, int $index): array {
+        })->filter()->sortByDesc('score')->values()->all();
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $sources
+     * @return list<array{content: string, citation: array<string, mixed>}>
+     */
+    private function finalize(array $sources): array
+    {
+        return collect($sources)->sortByDesc('score')->take(5)->values()->map(function (array $source, int $index): array {
             $source['citation']['reference'] = $index + 1;
+            $source['citation']['relevance'] = round((float) ($source['score'] ?? $source['citation']['relevance'] ?? 0), 4);
             unset($source['score']);
 
             return $source;
-        })->values()->all();
+        })->all();
     }
 }

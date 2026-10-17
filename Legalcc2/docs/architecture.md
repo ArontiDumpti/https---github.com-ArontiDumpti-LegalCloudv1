@@ -16,7 +16,7 @@ Cada usuario pertenece a una organización. El tenant se resuelve desde el usuar
 
 ## Flujo documental e IA
 
-La carga crea una versión inmutable con checksum y un job OCR en cola. MySQL conserva texto y permisos; los embeddings se indexan en PostgreSQL/pgvector. `OcrProvider`, `EmbeddingProvider` y `LlmProvider` son puntos de extensión; los proveedores actuales responden como no configurados, sin simular inferencias.
+La carga crea una versión inmutable con checksum y extrae el texto de PDF y DOCX. MySQL conserva texto y permisos; los embeddings siguen en PostgreSQL/pgvector cuando el proveedor está activo. Sin clave de OpenAI, el asistente responde citando los fragmentos recuperados. El detalle del esquema RAG está en [rag.md](rag.md).
 
 ## Deploy
 

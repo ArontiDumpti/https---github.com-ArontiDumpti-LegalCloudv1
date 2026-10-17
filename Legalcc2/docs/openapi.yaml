@@ -421,8 +421,13 @@ paths:
     post:
       tags: [Búsqueda]
       operationId: searchDocuments
-      summary: Buscar en metadatos y texto extraído
-      description: La búsqueda semántica puede combinarse con filtros estructurados.
+      summary: Buscar en metadatos, texto extraído y vectores
+      description: >-
+        keyword busca título, descripción y fragmentos en MySQL. semantic exige
+        pgvector y el proveedor de embeddings; si faltan, responde 503.
+        hybrid fusiona el ranking semántico y el léxico con RRF cuando el índice
+        vectorial está habilitado. Si el índice está apagado, hybrid usa solo MySQL.
+        Los filtros de expediente, categoría y fechas se aplican en todos los modos.
       requestBody:
         required: true
         content:

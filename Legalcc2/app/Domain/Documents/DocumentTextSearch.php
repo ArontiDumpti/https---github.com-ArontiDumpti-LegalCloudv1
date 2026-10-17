@@ -33,6 +33,7 @@ class DocumentTextSearch
                     ->whereColumn('documents.current_version_id', 'document_versions.id')
                     ->when($filters['caseId'] ?? null, fn (Builder $query, string $id) => $query->where('case_id', $id))
                     ->when($filters['categoryId'] ?? null, fn (Builder $query, string $id) => $query->where('category_id', $id))
+                    ->when($filters['documentIds'] ?? null, fn (Builder $query, array $ids) => $query->whereIn('documents.id', $ids))
                     ->when($filters['from'] ?? null, fn (Builder $query, string $date) => $query->whereDate('documents.created_at', '>=', $date))
                     ->when($filters['to'] ?? null, fn (Builder $query, string $date) => $query->whereDate('documents.created_at', '<=', $date));
             })
@@ -68,6 +69,7 @@ class DocumentTextSearch
         return Document::query()->where('organization_id', $organizationId)
             ->when($filters['caseId'] ?? null, fn (Builder $query, string $id) => $query->where('case_id', $id))
             ->when($filters['categoryId'] ?? null, fn (Builder $query, string $id) => $query->where('category_id', $id))
+            ->when($filters['documentIds'] ?? null, fn (Builder $query, array $ids) => $query->whereIn('id', $ids))
             ->when($filters['from'] ?? null, fn (Builder $query, string $date) => $query->whereDate('created_at', '>=', $date))
             ->when($filters['to'] ?? null, fn (Builder $query, string $date) => $query->whereDate('created_at', '<=', $date));
     }

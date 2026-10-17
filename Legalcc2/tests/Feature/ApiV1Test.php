@@ -279,6 +279,65 @@ class ApiV1Test extends TestCase
             ->assertJsonPath('data.0.title', 'OCR completed');
     }
 
+    public function test_consultant_only_receives_consultation_data(): void
+    {
+        $organization = $this->createOrganization();
+        $admin = $this->createUser($organization, 'administrator');
+        $consultant = $this->createUser($organization, 'consultant');
+
+        $this->withToken($this->login($admin))->postJson('/api/v1/cases', [
+            'reference' => 'EXP-ROLE-001',
+            'title' => 'Expediente visible',
+        ])->assertCreated();
+
+        Auth::forgetGuards();
+        $token = $this->login($consultant);
+
+        $this->withToken($token)->getJson('/api/v1/users')->assertForbidden();
+        $this->withToken($token)->getJson('/api/v1/audit-events')->assertForbidden();
+        $this->withToken($token)->getJson('/api/v1/dashboard')
+            ->assertOk()
+            ->assertJsonPath('recentActivity', [])
+            ->assertJsonPath('cases.total', 1);
+        $this->withToken($token)->getJson('/api/v1/cases')
+            ->assertOk()
+            ->assertJsonPath('data.0.title', 'Expediente visible');
+    }
+
+    public function test_administrator_can_delete_another_user_but_not_themselves(): void
+    {
+        $organization = $this->createOrganization();
+        $admin = $this->createUser($organization, 'administrator');
+        $consultant = $this->createUser($organization, 'consultant');
+        $case = LegalCase::query()->create([
+            'organization_id' => $organization->id,
+            'reference' => 'EXP-DEL-001',
+            'title' => 'Owned by consultant',
+            'owner_id' => $consultant->public_id,
+            'status' => 'open',
+        ]);
+        $token = $this->login($admin);
+
+        $this->withToken($token)->deleteJson('/api/v1/users/'.$admin->public_id)
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'cannot_delete_self');
+        $this->withToken($token)->deleteJson('/api/v1/users/'.$consultant->public_id)->assertNoContent();
+
+        $this->assertDatabaseMissing('users', ['id' => $consultant->id]);
+        $this->assertDatabaseHas('audit_events', [
+            'organization_id' => $organization->id,
+            'action' => 'user.deleted',
+            'resource_id' => $consultant->public_id,
+        ]);
+        $this->assertNull($case->fresh()->owner_id);
+
+        Auth::forgetGuards();
+        $otherConsultant = $this->createUser($organization, 'consultant');
+        $this->withToken($this->login($otherConsultant))
+            ->deleteJson('/api/v1/users/'.$admin->public_id)
+            ->assertForbidden();
+    }
+
     public function test_semantic_search_returns_service_unavailable_until_pgvector_is_enabled(): void
     {
         config(['legalcloud.vector.enabled' => false]);

@@ -62,7 +62,7 @@ paths:
     get:
       tags: [Usuarios]
       operationId: listUsers
-      summary: Listar usuarios de la organización
+      summary: Listar usuarios de la organización (solo administrador)
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -86,6 +86,7 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/User' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [Usuarios]
       operationId: createUser
@@ -110,7 +111,7 @@ paths:
     get:
       tags: [Usuarios]
       operationId: getUser
-      summary: Consultar un usuario
+      summary: Consultar un usuario (solo administrador)
       responses:
         '200':
           description: Usuario encontrado
@@ -118,6 +119,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/User' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [Usuarios]
@@ -134,6 +136,16 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Usuarios]
+      operationId: deleteUser
+      summary: Eliminar un usuario de la organización (solo administrador)
+      responses:
+        '204': { description: Usuario eliminado }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -671,7 +683,7 @@ paths:
     get:
       tags: [Dashboard]
       operationId: getDashboard
-      summary: Obtener indicadores del espacio de trabajo
+      summary: Obtener indicadores del espacio de trabajo. recentActivity queda vacío para especialista y usuario consultor.
       responses:
         '200':
           description: Indicadores resumidos

@@ -18,9 +18,12 @@ use App\Models\Document;
 use App\Models\DocumentVersion;
 use App\Models\LegalCase;
 use App\Models\ProcessingJob;
+use App\Models\SavedSearch;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -39,6 +42,13 @@ class DocumentController extends Controller
             ->latest()->paginate(min(max((int) $request->query('perPage', 20), 1), 100));
 
         return DocumentResource::collection($documents);
+    }
+
+    public function storeInCase(Request $request, string $caseId, AuditLogger $audit): JsonResponse
+    {
+        $request->merge(['caseId' => $caseId]);
+
+        return $this->store($this->uploadRequest($request), $audit);
     }
 
     public function store(UploadDocumentRequest $request, AuditLogger $audit): JsonResponse
@@ -170,24 +180,206 @@ class DocumentController extends Controller
         ]);
     }
 
-    public function search(SearchRequest $request, VectorIndexService $vectors, DocumentTextSearch $textSearch, HybridSearch $hybrid): JsonResponse
+    public function search(SearchRequest $request): JsonResponse
+    {
+        return response()->json($this->runSearch($request->user(), $request->validated()));
+    }
+
+    public function storeSavedSearch(SearchRequest $request): JsonResponse
     {
         $data = $request->validated();
+        $saved = SavedSearch::query()->create([
+            'organization_id' => $request->user()->organization_id,
+            'user_id' => $request->user()->id,
+            'name' => mb_substr((string) ($request->input('name') ?: $data['query']), 0, 160),
+            'query' => $data['query'],
+            'filters' => array_filter([
+                'mode' => $data['mode'] ?? 'hybrid',
+                'caseId' => $data['caseId'] ?? null,
+            ]),
+        ]);
+        $results = $this->runSearch($request->user(), $data);
+        $results['id'] = $saved->id;
+        $results['name'] = $saved->name;
+
+        return response()->json($results, 201);
+    }
+
+    public function savedSearches(Request $request)
+    {
+        $searches = SavedSearch::query()->where('organization_id', $request->user()->organization_id)
+            ->where('user_id', $request->user()->id)->latest()->get();
+
+        return response()->json(['data' => $searches->map(fn (SavedSearch $search) => [
+            'id' => $search->id,
+            'name' => $search->name,
+            'query' => $search->query,
+            'filters' => $search->filters,
+            'createdAt' => $search->created_at,
+        ])->values()]);
+    }
+
+    public function showSavedSearch(Request $request, string $searchId): JsonResponse
+    {
+        $saved = SavedSearch::query()->where('organization_id', $request->user()->organization_id)
+            ->where('user_id', $request->user()->id)->whereKey($searchId)->firstOrFail();
+        $filters = is_array($saved->filters) ? $saved->filters : [];
+        $results = $this->runSearch($request->user(), [
+            'query' => $saved->query,
+            'mode' => $filters['mode'] ?? 'hybrid',
+            'caseId' => $filters['caseId'] ?? null,
+            'page' => 1,
+            'perPage' => 20,
+        ]);
+        $results['id'] = $saved->id;
+        $results['name'] = $saved->name;
+
+        return response()->json($results);
+    }
+
+    public function beginUpload(Request $request, string $caseId): JsonResponse
+    {
+        $case = LegalCase::query()->where('organization_id', $request->user()->organization_id)->findOrFail($caseId);
+        $data = $request->validate([
+            'title' => ['required', 'string', 'min:1', 'max:200'],
+            'description' => ['nullable', 'string', 'max:5000'],
+            'categoryId' => ['nullable', 'uuid'],
+        ]);
+        $token = (string) Str::uuid();
+        Cache::put($this->uploadCacheKey($token), [
+            'organizationId' => $request->user()->organization_id,
+            'userId' => $request->user()->public_id,
+            'caseId' => $case->id,
+            'title' => $data['title'],
+            'description' => $data['description'] ?? null,
+            'categoryId' => $data['categoryId'] ?? null,
+        ], now()->addHour());
+
+        return response()->json([
+            'token' => $token,
+            'uploadUrl' => url('/api/v1/cargas/'.$token),
+            'expiresIn' => 3600,
+        ], 202);
+    }
+
+    public function receiveUpload(Request $request, string $token, AuditLogger $audit): JsonResponse
+    {
+        $pending = Cache::pull($this->uploadCacheKey($token));
+        abort_unless(is_array($pending) && $pending['organizationId'] === $request->user()->organization_id && $pending['userId'] === $request->user()->public_id, 404);
+        $request->merge([
+            'caseId' => $pending['caseId'],
+            'title' => $pending['title'],
+            'description' => $pending['description'],
+            'categoryId' => $pending['categoryId'],
+        ]);
+
+        return $this->store($this->uploadRequest($request), $audit);
+    }
+
+    public function archive(Request $request, string $documentId, AuditLogger $audit): JsonResponse
+    {
+        return $this->destroy($request, $documentId, $audit);
+    }
+
+    public function showVersion(Request $request, string $documentId, string $versionId): DocumentVersionResource
+    {
+        return new DocumentVersionResource($this->findVersion($request, $documentId, $versionId));
+    }
+
+    public function confirmVersion(Request $request, string $documentId, string $versionId, AuditLogger $audit): DocumentVersionResource
+    {
+        return $this->promoteVersion($request, $documentId, $versionId, $audit, 'document.version_confirmed');
+    }
+
+    public function restoreVersion(Request $request, string $documentId, string $versionId, AuditLogger $audit): DocumentVersionResource
+    {
+        return $this->promoteVersion($request, $documentId, $versionId, $audit, 'document.version_restored');
+    }
+
+    public function versionText(Request $request, string $documentId, string $versionId): JsonResponse
+    {
+        $version = $this->findVersion($request, $documentId, $versionId);
+
+        return response()->json([
+            'versionId' => $version->id,
+            'text' => $version->extracted_text,
+        ]);
+    }
+
+    public function downloadCurrent(Request $request, string $documentId)
+    {
+        $document = $this->findDocument($request, $documentId);
+        abort_unless($document->current_version_id, 404);
+
+        return $this->download($request, $documentId, $document->current_version_id);
+    }
+
+    public function storeExample(Request $request, AuditLogger $audit): JsonResponse
+    {
+        $case = LegalCase::query()->where('organization_id', $request->user()->organization_id)->latest()->first();
+        abort_unless($case, 422, 'Crea un expediente antes de generar un documento de ejemplo.');
+        $file = \Illuminate\Http\UploadedFile::fake()->createWithContent('ejemplo-legalcloud.txt', "Documento de ejemplo\nOrganización: expediente {$case->reference}\n");
+        $request->files->set('file', $file);
+        $request->merge(['caseId' => $case->id, 'title' => 'Documento de ejemplo', 'description' => 'Generado desde la web para probar la carga.']);
+
+        return $this->store($this->uploadRequest($request), $audit);
+    }
+
+    private function promoteVersion(Request $request, string $documentId, string $versionId, AuditLogger $audit, string $action): DocumentVersionResource
+    {
+        $document = $this->findDocument($request, $documentId);
+        $version = $this->findVersion($request, $documentId, $versionId);
+        $document->update([
+            'current_version_id' => $version->id,
+            'mime_type' => $version->mime_type,
+            'size_bytes' => $version->size_bytes,
+        ]);
+        $audit->record($request, $request->user(), $action, 'document', $document->id, ['versionId' => $version->id]);
+
+        return new DocumentVersionResource($version);
+    }
+
+    private function findVersion(Request $request, string $documentId, string $versionId): DocumentVersion
+    {
+        return $this->findDocument($request, $documentId)->versions()->whereKey($versionId)->firstOrFail();
+    }
+
+    private function uploadRequest(Request $request): UploadDocumentRequest
+    {
+        $form = UploadDocumentRequest::createFrom($request);
+        $form->setContainer(app());
+        $form->setRedirector(app('redirect'));
+        $form->setUserResolver(fn () => $request->user());
+
+        return $form;
+    }
+
+    private function uploadCacheKey(string $token): string
+    {
+        return 'legalcloud.upload.'.$token;
+    }
+
+    /** @param  array<string, mixed>  $data */
+    private function runSearch(User $user, array $data): array
+    {
         $mode = $data['mode'] ?? 'hybrid';
         $page = (int) ($data['page'] ?? 1);
         $perPage = min(max((int) ($data['perPage'] ?? 20), 1), 100);
-        $query = trim($data['query']);
-        $organizationId = $request->user()->organization_id;
+        $query = trim((string) $data['query']);
+        $organizationId = $user->organization_id;
+        $vectors = app(VectorIndexService::class);
+        $textSearch = app(DocumentTextSearch::class);
+        $hybrid = app(HybridSearch::class);
 
         if ($mode === 'semantic') {
-            return response()->json($vectors->search($query, $organizationId, $data, $page, $perPage));
+            return $vectors->search($query, $organizationId, $data, $page, $perPage);
         }
 
         if ($mode === 'hybrid' && config('legalcloud.vector.enabled')) {
-            return response()->json($hybrid->search($query, $organizationId, $data, $page, $perPage));
+            return $hybrid->search($query, $organizationId, $data, $page, $perPage);
         }
 
-        return response()->json($textSearch->search($query, $organizationId, $data, $page, $perPage));
+        return $textSearch->search($query, $organizationId, $data, $page, $perPage);
     }
 
     private function findDocument(Request $request, string $documentId): Document

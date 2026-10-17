@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Audit\AuditLogger;
+use App\Domain\Identity\RoleCatalog;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\StoreUserRequest;
 use App\Http\Requests\Api\V1\UpdateUserRequest;
 use App\Http\Resources\Api\V1\UserResource;
+use App\Models\LegalCase;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -66,6 +68,62 @@ class UserController extends Controller
         abort_if($user->is($request->user()) && ($changes['status'] ?? null) === 'suspended', 422, 'You cannot suspend your own account.');
         $user->fill($changes)->save();
         $audit->record($request, $request->user(), 'user.updated', 'user', $user->public_id, array_intersect_key($changes, array_flip(['role', 'status'])));
+
+        return new UserResource($user);
+    }
+
+    public function destroy(Request $request, string $userId, AuditLogger $audit): JsonResponse
+    {
+        $user = $this->findInOrganization($request, $userId);
+        if ($user->is($request->user())) {
+            return response()->json([
+                'code' => 'cannot_delete_self',
+                'message' => 'No puedes eliminar tu propia cuenta.',
+            ], 422);
+        }
+
+        $audit->record($request, $request->user(), 'user.deleted', 'user', $user->public_id, ['role' => $user->role]);
+        LegalCase::query()
+            ->where('organization_id', $user->organization_id)
+            ->where('owner_id', $user->public_id)
+            ->update(['owner_id' => null]);
+        $user->delete();
+
+        return response()->json(null, 204);
+    }
+
+    public function suspend(Request $request, string $userId, AuditLogger $audit): UserResource
+    {
+        return $this->changeStatus($request, $userId, 'suspended', $audit, 'user.suspended');
+    }
+
+    public function reactivate(Request $request, string $userId, AuditLogger $audit): UserResource
+    {
+        return $this->changeStatus($request, $userId, 'active', $audit, 'user.reactivated');
+    }
+
+    public function syncRoles(Request $request, string $userId, AuditLogger $audit, RoleCatalog $roles): UserResource
+    {
+        $data = $request->validate([
+            'roles' => ['required', 'array', 'min:1', 'max:1'],
+            'roles.*' => ['required', 'string'],
+        ]);
+        $roleId = $data['roles'][0];
+        $roles->find($roleId, $request->user()->organization);
+        $user = $this->findInOrganization($request, $userId);
+        abort_if($user->is($request->user()) && $roleId !== 'administrator' && $user->role === 'administrator', 422, 'No puedes quitarte el rol de administrador.');
+        $user->forceFill(['role' => $roleId])->save();
+        $audit->record($request, $request->user(), 'user.roles_replaced', 'user', $user->public_id, ['role' => $roleId]);
+
+        return new UserResource($user);
+    }
+
+    private function changeStatus(Request $request, string $userId, string $status, AuditLogger $audit, string $action): UserResource
+    {
+        $user = $this->findInOrganization($request, $userId);
+        abort_if($user->is($request->user()) && $status === 'suspended', 422, 'No puedes suspender tu propia cuenta.');
+        $user->forceFill(['status' => $status])->save();
+        $audit->record($request, $request->user(), $action, 'user', $user->public_id, ['status' => $status]);
 
         return new UserResource($user);
     }

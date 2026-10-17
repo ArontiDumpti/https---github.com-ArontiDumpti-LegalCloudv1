@@ -1,12 +1,14 @@
 <!DOCTYPE html>
-<html lang="es" data-api-base="{{ url('/api/v1') }}" data-api-mode="{{ config('legalcloud.api_mode', 'api') }}">
+<html lang="es" data-api-base="{{ url('/api/v1') }}" data-api-mode="{{ config('legalcloud.api_mode', 'api') }}" data-initial-view="{{ $initialView ?? 'dashboard' }}" data-settings-section="{{ $settingsSection ?? 'profile' }}">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#f4f5ef">
     <title>LegalCloud AI | Gestión documental</title>
-    @fonts
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
+    <link rel="preconnect" href="https://fonts.bunny.net">
+    <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600" rel="stylesheet">
+    <link rel="stylesheet" href="{{ mix('css/app.css') }}">
+    <script src="{{ mix('js/app.js') }}" defer></script>
 </head>
 <body>
 <div class="auth-gate" data-auth-gate hidden>
@@ -25,12 +27,14 @@
     <div class="mobile-scrim" data-scrim></div>
     <aside class="sidebar" id="sidebar">
         <a class="brand" href="/" aria-label="LegalCloud AI, inicio"><span class="brand-mark">lc<span>.</span></span><span class="brand-name">legalcloud<span>AI</span></span></a>
-        <div class="workspace-switcher"><span class="workspace-avatar" data-workspace-avatar>N</span><span class="workspace-copy"><strong data-workspace-name>Tu organización</strong><small>Espacio de trabajo</small></span><span class="workspace-caret">⌄</span></div>
+        <div class="workspace-switcher"><span class="workspace-avatar" data-workspace-avatar>N</span><span class="workspace-copy"><strong data-workspace-name>Tu organización</strong><small>Espacio de trabajo</small></span></div>
         <nav class="side-nav" aria-label="Navegación principal">
             <p class="nav-label">ESPACIO DE TRABAJO</p>
             <button class="nav-link is-active" data-nav="dashboard"><i data-icon="grid"></i><span>Resumen</span></button>
             <button class="nav-link" data-nav="cases"><i data-icon="folder"></i><span>Expedientes</span><span class="nav-count" data-case-count>0</span></button>
             <button class="nav-link" data-nav="documents"><i data-icon="file"></i><span>Documentos</span></button>
+            <button class="nav-link" data-nav="categories"><i data-icon="folder"></i><span>Categorías</span></button>
+            <button class="nav-link" data-nav="ocr"><i data-icon="scan"></i><span>Procesamiento</span></button>
             <button class="nav-link" data-nav="search"><i data-icon="search"></i><span>Búsqueda inteligente</span></button>
             <button class="nav-link" data-nav="assistant"><i data-icon="sparkles"></i><span>Asistente IA</span><span class="nav-new">IA</span></button>
             <p class="nav-label nav-label-spaced">ADMINISTRACIÓN</p>
@@ -39,7 +43,7 @@
         </nav>
         <div class="sidebar-bottom">
             <div class="secure-note"><span class="secure-icon"><i data-icon="shield"></i></span><span><strong>Espacio protegido</strong><small>Trazabilidad activa</small></span><span class="secure-dot"></span></div>
-            <button class="profile-button" type="button"><span class="profile-avatar" data-profile-avatar>LC</span><span class="profile-copy"><strong data-profile-name>Cuenta</strong><small data-profile-role>Sesión</small></span><i data-icon="more"></i></button>
+            <button class="profile-button" type="button" data-nav="settings"><span class="profile-avatar" data-profile-avatar>LC</span><span class="profile-copy"><strong data-profile-name>Cuenta</strong><small data-profile-role>Sesión</small></span></button>
             <button class="nav-link logout-link" type="button" data-logout><i data-icon="close"></i><span>Cerrar sesión</span></button>
         </div>
     </aside>
@@ -48,12 +52,12 @@
             <button class="icon-button menu-toggle" type="button" aria-label="Abrir menú" data-menu-toggle><i data-icon="menu"></i></button>
             <div class="breadcrumbs"><span data-org-label>Tu organización</span><i data-icon="chevron-right"></i><strong data-breadcrumb>Resumen</strong></div>
             <div class="topbar-actions">
-                <label class="global-search"><i data-icon="search"></i><input type="search" placeholder="Buscar en LegalCloud" aria-label="Buscar en LegalCloud" data-global-search><kbd>/</kbd></label>
+                <label class="global-search"><i data-icon="search"></i><input type="search" placeholder="Buscar expedientes o documentos" aria-label="Buscar expedientes o documentos" data-global-search><kbd>/</kbd></label>
                 <button class="icon-button notification-button" type="button" aria-label="Notificaciones" title="Notificaciones" data-notifications><i data-icon="bell"></i><span class="notification-dot"></span></button>
                 <span class="topbar-divider"></span><span class="today-label" data-today>Hoy</span>
             </div>
             <div class="notification-popover" data-notification-popover hidden>
-                <div class="popover-heading"><strong>Notificaciones</strong><span data-notification-count>0</span></div>
+                <div class="popover-heading"><strong>Notificaciones</strong><span data-notification-count>0</span><button class="button button-quiet" type="button" data-nav="notifications">Ver todas</button></div>
                 <div data-notification-list><div class="empty-state">No hay notificaciones.</div></div>
             </div>
         </header>
@@ -80,6 +84,31 @@
         <div class="form-actions"><button class="button button-quiet" type="button" data-dismiss>Cancelar</button><button class="button button-primary" type="submit">Cargar documento <i data-icon="arrow-up"></i></button></div>
     </form>
 </dialog>
+<dialog class="modal" id="document-edit-modal">
+    <form method="dialog" class="modal-close-row"><button class="icon-button" aria-label="Cerrar"><i data-icon="close"></i></button></form>
+    <div class="modal-eyebrow">BIBLIOTECA DOCUMENTAL</div><h2>Editar documento</h2><p class="modal-description" data-document-label></p>
+    <form class="form-stack" data-document-edit-form>
+        <input type="hidden" name="documentId">
+        <label>Título<input name="title" required maxlength="200"></label>
+        <label>Descripción<textarea name="description" rows="3" maxlength="2000" placeholder="Notas o contexto del documento"></textarea></label>
+        <div class="form-actions"><button class="button button-quiet" type="button" data-dismiss>Cancelar</button><button class="button button-primary" type="submit">Guardar cambios</button></div>
+    </form>
+</dialog>
+<dialog class="modal" id="document-version-modal">
+    <form method="dialog" class="modal-close-row"><button class="icon-button" aria-label="Cerrar"><i data-icon="close"></i></button></form>
+    <div class="modal-eyebrow">BIBLIOTECA DOCUMENTAL</div><h2>Nueva versión</h2><p class="modal-description">El archivo sustituye la versión actual de <strong data-document-label></strong> y vuelve a extraerse.</p>
+    <form class="form-stack" data-document-version-form>
+        <input type="hidden" name="documentId">
+        <label class="drop-zone"><i data-icon="upload"></i><strong>Selecciona el archivo</strong><small>PDF, DOCX o imagen · máximo 25 MB</small><input type="file" name="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.tif,.tiff" required></label>
+        <label>Nota del cambio<input name="changeNote" maxlength="1000" placeholder="Qué cambió en esta versión"></label>
+        <div class="form-actions"><button class="button button-quiet" type="button" data-dismiss>Cancelar</button><button class="button button-primary" type="submit">Cargar versión</button></div>
+    </form>
+</dialog>
+<dialog class="modal" id="document-versions-modal">
+    <form method="dialog" class="modal-close-row"><button class="icon-button" aria-label="Cerrar"><i data-icon="close"></i></button></form>
+    <div class="modal-eyebrow">BIBLIOTECA DOCUMENTAL</div><h2>Versiones</h2><p class="modal-description" data-document-label></p>
+    <div class="version-list" data-version-list></div>
+</dialog>
 <dialog class="modal" id="user-modal">
     <form method="dialog" class="modal-close-row"><button class="icon-button" aria-label="Cerrar"><i data-icon="close"></i></button></form>
     <div class="modal-eyebrow">ADMINISTRACIÓN</div><h2>Crear usuario</h2><p class="modal-description">La persona podrá entrar con este correo y esta contraseña.</p>
@@ -89,6 +118,15 @@
         <label>Contraseña temporal<input name="password" type="password" required minlength="12"></label>
         <label>Rol<select name="role" required><option value="consultant">Usuario consultor</option><option value="analyst">Especialista / analista</option><option value="records_manager">Responsable documental</option><option value="administrator">Administrador</option></select></label>
         <div class="form-actions"><button class="button button-quiet" type="button" data-dismiss>Cancelar</button><button class="button button-primary" type="submit">Crear usuario</button></div>
+    </form>
+</dialog>
+<dialog class="modal" id="category-modal">
+    <form method="dialog" class="modal-close-row"><button class="icon-button" aria-label="Cerrar"><i data-icon="close"></i></button></form>
+    <div class="modal-eyebrow">ORGANIZACIÓN</div><h2>Nueva categoría</h2><p class="modal-description">Sirve para agrupar expedientes y documentos.</p>
+    <form class="form-stack" data-category-form>
+        <label>Nombre<input name="name" required maxlength="120"></label>
+        <label>Descripción<textarea name="description" rows="3" maxlength="1000"></textarea></label>
+        <div class="form-actions"><button class="button button-quiet" type="button" data-dismiss>Cancelar</button><button class="button button-primary" type="submit">Crear categoría</button></div>
     </form>
 </dialog>
 <div class="toast-region" aria-live="polite" data-toast-region></div>

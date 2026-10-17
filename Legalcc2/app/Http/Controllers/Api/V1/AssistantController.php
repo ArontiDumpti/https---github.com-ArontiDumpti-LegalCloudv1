@@ -16,6 +16,8 @@ use App\Http\Resources\Api\V1\ConversationResource;
 use App\Models\AssistantMessage;
 use App\Models\Citation;
 use App\Models\Conversation;
+use App\Models\Document;
+use App\Models\ProcessingJob;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -41,6 +43,72 @@ class AssistantController extends Controller
         $audit->record($request, $request->user(), 'assistant.conversation_created', 'conversation', $conversation->id);
 
         return (new ConversationResource($conversation))->response()->setStatusCode(201);
+    }
+
+    public function show(Request $request, string $conversationId): JsonResponse
+    {
+        $conversation = $this->findConversation($request, $conversationId)->load('messages.citations.document');
+
+        return response()->json([
+            'data' => (new ConversationResource($conversation))->resolve(),
+            'messages' => AssistantMessageResource::collection($conversation->messages)->resolve(),
+        ]);
+    }
+
+    public function query(AskAssistantRequest $request, AuditLogger $audit, RagAnswerService $answers): JsonResponse
+    {
+        $conversation = Conversation::query()->create([
+            'organization_id' => $request->user()->organization_id,
+            'user_id' => $request->user()->id,
+            'case_id' => $request->validated('caseId'),
+            'title' => mb_substr($request->validated('question'), 0, 80),
+        ]);
+        $audit->record($request, $request->user(), 'assistant.query', 'conversation', $conversation->id);
+
+        return $this->ask($request, $conversation->id, $audit, $answers);
+    }
+
+    public function summarize(Request $request, AuditLogger $audit): JsonResponse
+    {
+        $data = $request->validate(['documentoId' => ['required', 'uuid']]);
+        $document = Document::query()->where('organization_id', $request->user()->organization_id)->with('currentVersion')->findOrFail($data['documentoId']);
+        abort_unless($document->current_version_id, 409, 'El documento no tiene una versión almacenada.');
+        $text = trim((string) $document->currentVersion?->extracted_text);
+        $summary = $text === ''
+            ? 'El documento todavía no tiene texto extraído. Solicita el procesamiento OCR antes de generar el resumen.'
+            : mb_substr(preg_replace('/\s+/', ' ', $text) ?? $text, 0, 700);
+        $job = ProcessingJob::query()->create([
+            'organization_id' => $document->organization_id,
+            'document_id' => $document->id,
+            'document_version_id' => $document->current_version_id,
+            'type' => 'summary',
+            'status' => 'completed',
+            'progress' => 100,
+            'result_text' => $summary,
+            'started_at' => now(),
+            'completed_at' => now(),
+        ]);
+        $audit->record($request, $request->user(), 'document.summary_requested', 'document', $document->id, ['resumenId' => $job->id]);
+
+        return response()->json([
+            'id' => $job->id,
+            'documentoId' => $document->id,
+            'status' => $job->status,
+            'text' => $job->result_text,
+        ], 201);
+    }
+
+    public function showSummary(Request $request, string $summaryId): JsonResponse
+    {
+        $job = ProcessingJob::query()->where('organization_id', $request->user()->organization_id)
+            ->where('type', 'summary')->whereKey($summaryId)->firstOrFail();
+
+        return response()->json([
+            'id' => $job->id,
+            'documentoId' => $job->document_id,
+            'status' => $job->status,
+            'text' => $job->result_text,
+        ]);
     }
 
     public function ask(AskAssistantRequest $request, string $conversationId, AuditLogger $audit, RagAnswerService $answers): JsonResponse

@@ -7,6 +7,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\Api\V1\ProcessingJobResource;
 use App\Jobs\ProcessDocumentOcr;
 use App\Models\Document;
+use App\Models\DocumentVersion;
+use App\Models\LegalCase;
 use App\Models\ProcessingJob;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -44,6 +46,61 @@ class ProcessingJobController extends Controller
         });
 
         return (new ProcessingJobResource($job))->response()->setStatusCode(202);
+    }
+
+    public function reprocess(Request $request, string $documentId, string $versionId, AuditLogger $audit): JsonResponse
+    {
+        $document = Document::query()->where('organization_id', $request->user()->organization_id)->findOrFail($documentId);
+        $version = DocumentVersion::query()->where('document_id', $document->id)->whereKey($versionId)->firstOrFail();
+        $activeJob = ProcessingJob::query()->where('document_version_id', $version->id)
+            ->where('type', 'ocr')->whereIn('status', ['queued', 'processing'])->first();
+        if ($activeJob) {
+            return response()->json(['code' => 'processing_already_active', 'message' => 'OCR is already queued for this version.'], 409);
+        }
+
+        $job = DB::transaction(function () use ($request, $document, $version, $audit): ProcessingJob {
+            $job = ProcessingJob::query()->create([
+                'organization_id' => $document->organization_id,
+                'document_id' => $document->id,
+                'document_version_id' => $version->id,
+                'type' => 'ocr',
+                'status' => 'queued',
+            ]);
+            $document->update(['status' => 'processing']);
+            $audit->record($request, $request->user(), 'document.ocr_requested', 'document', $document->id, ['jobId' => $job->id, 'versionId' => $version->id]);
+            ProcessDocumentOcr::dispatch($job->id)->afterCommit();
+
+            return $job;
+        });
+
+        return (new ProcessingJobResource($job))->response()->setStatusCode(202);
+    }
+
+    public function ingest(Request $request, AuditLogger $audit): JsonResponse
+    {
+        $data = $request->validate([
+            'documentoId' => ['nullable', 'uuid'],
+            'expedienteId' => ['nullable', 'uuid'],
+        ]);
+        abort_if(empty($data['documentoId']) && empty($data['expedienteId']), 422, 'Indica un documento o un expediente.');
+
+        $documents = Document::query()->where('organization_id', $request->user()->organization_id)
+            ->when($data['documentoId'] ?? null, fn ($query, $id) => $query->whereKey($id))
+            ->when($data['expedienteId'] ?? null, function ($query, $id) use ($request) {
+                $case = LegalCase::query()->where('organization_id', $request->user()->organization_id)->findOrFail($id);
+
+                return $query->where('case_id', $case->id);
+            })
+            ->whereNotNull('current_version_id')
+            ->get();
+
+        $jobs = $documents->map(function (Document $document) use ($request, $audit) {
+            $response = $this->startOcr($request, $document->id, $audit);
+
+            return $response->getStatusCode() === 202 ? $response->getData(true) : null;
+        })->filter()->values();
+
+        return response()->json(['data' => $jobs], 202);
     }
 
     public function show(Request $request, string $jobId): ProcessingJobResource

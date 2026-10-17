@@ -15,6 +15,7 @@ class DashboardController extends Controller
     public function show(Request $request)
     {
         $organizationId = $request->user()->organization_id;
+        $canSeeAudit = in_array($request->user()->role, ['administrator', 'records_manager'], true);
 
         return response()->json([
             'cases' => [
@@ -31,9 +32,9 @@ class DashboardController extends Controller
                 'queued' => ProcessingJob::query()->where('organization_id', $organizationId)->where('status', 'queued')->count(),
                 'failed' => ProcessingJob::query()->where('organization_id', $organizationId)->where('status', 'failed')->count(),
             ],
-            'recentActivity' => AuditEventResource::collection(
+            'recentActivity' => $canSeeAudit ? AuditEventResource::collection(
                 AuditEvent::query()->where('organization_id', $organizationId)->orderByDesc('occurred_at')->limit(5)->get(),
-            )->resolve(),
+            )->resolve() : [],
         ]);
     }
 }

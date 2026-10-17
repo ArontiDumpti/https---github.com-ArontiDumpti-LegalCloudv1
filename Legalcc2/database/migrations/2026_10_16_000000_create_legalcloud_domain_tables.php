@@ -195,6 +195,8 @@ return new class extends Migration
         Schema::table('users', function (Blueprint $table): void {
             $table->dropConstrainedForeignId('organization_id');
             $table->dropUnique(['public_id']);
+            $table->dropIndex(['role']);
+            $table->dropIndex(['status']);
             $table->dropColumn(['public_id', 'role', 'status']);
         });
         Schema::dropIfExists('organizations');

@@ -241,18 +241,19 @@ class ApiV1Test extends TestCase
     public function test_dashboard_serializes_tenant_audit_events_with_the_public_contract(): void
     {
         $organization = $this->createOrganization();
-        $user = $this->createUser($organization, 'records_manager');
-        $token = $this->login($user);
+        $manager = $this->createUser($organization, 'records_manager');
+        $admin = $this->createUser($organization, 'administrator');
 
-        $this->withToken($token)->postJson('/api/v1/cases', [
+        $this->withToken($this->login($manager))->postJson('/api/v1/cases', [
             'reference' => 'EXP-DASH-001',
             'title' => 'Dashboard test case',
         ])->assertCreated();
 
-        $this->withToken($token)->getJson('/api/v1/dashboard')
+        Auth::forgetGuards();
+        $this->withToken($this->login($admin))->getJson('/api/v1/dashboard')
             ->assertOk()
             ->assertJsonPath('cases.total', 1)
-            ->assertJsonFragment(['actorId' => $user->public_id, 'action' => 'case.created']);
+            ->assertJsonFragment(['actorId' => $manager->public_id, 'action' => 'case.created']);
     }
 
     public function test_notifications_are_limited_to_the_authenticated_user(): void
@@ -282,10 +283,10 @@ class ApiV1Test extends TestCase
     public function test_consultant_only_receives_consultation_data(): void
     {
         $organization = $this->createOrganization();
-        $admin = $this->createUser($organization, 'administrator');
+        $manager = $this->createUser($organization, 'records_manager');
         $consultant = $this->createUser($organization, 'consultant');
 
-        $this->withToken($this->login($admin))->postJson('/api/v1/cases', [
+        $this->withToken($this->login($manager))->postJson('/api/v1/cases', [
             'reference' => 'EXP-ROLE-001',
             'title' => 'Expediente visible',
         ])->assertCreated();

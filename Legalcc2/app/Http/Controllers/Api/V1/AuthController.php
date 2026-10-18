@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Audit\AuditLogger;
 use App\Domain\Identity\ApiTokenService;
+use App\Domain\Identity\RoleCatalog;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\LoginRequest;
 use App\Http\Resources\Api\V1\UserResource;
@@ -17,7 +18,7 @@ use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
-    public function login(LoginRequest $request, ApiTokenService $tokens, AuditLogger $audit): JsonResponse
+    public function login(LoginRequest $request, ApiTokenService $tokens, AuditLogger $audit, RoleCatalog $roles): JsonResponse
     {
         $user = User::query()->where('email_hash', User::emailLookupHash($request->validated('email')))->first();
 
@@ -32,6 +33,7 @@ class AuthController extends Controller
             'accessToken' => $token['plainTextToken'],
             'tokenType' => 'Bearer',
             'expiresAt' => $token['expiresAt']->toISOString(),
+            'home' => $roles->homePath($user),
             'user' => (new UserResource($user))->resolve(),
             'organization' => [
                 'id' => $user->organization->id,

@@ -31,7 +31,7 @@ export const viewPaths = {
     users: '/usuarios',
     notifications: '/notificaciones',
     settings: '/settings/profile',
-    audit: '/dashboard',
+    audit: '/auditoria',
 };
 
 const pathViews = Object.entries(viewPaths).reduce((map, [view, path]) => {

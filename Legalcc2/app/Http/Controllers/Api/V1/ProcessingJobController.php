@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\Access\RecordScope;
 use App\Domain\Audit\AuditLogger;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Api\V1\ProcessingJobResource;
@@ -18,7 +19,8 @@ class ProcessingJobController extends Controller
 {
     public function startOcr(Request $request, string $documentId, AuditLogger $audit): JsonResponse
     {
-        $document = Document::query()->where('organization_id', $request->user()->organization_id)->findOrFail($documentId);
+        $document = app(RecordScope::class)->documents($request->user())->findOrFail($documentId);
+        $this->authorize('process', $document);
 
         if (! $document->current_version_id) {
             return response()->json(['code' => 'document_version_missing', 'message' => 'The document has no stored version.'], 409);
@@ -50,7 +52,8 @@ class ProcessingJobController extends Controller
 
     public function reprocess(Request $request, string $documentId, string $versionId, AuditLogger $audit): JsonResponse
     {
-        $document = Document::query()->where('organization_id', $request->user()->organization_id)->findOrFail($documentId);
+        $document = app(RecordScope::class)->documents($request->user())->findOrFail($documentId);
+        $this->authorize('process', $document);
         $version = DocumentVersion::query()->where('document_id', $document->id)->whereKey($versionId)->firstOrFail();
         $activeJob = ProcessingJob::query()->where('document_version_id', $version->id)
             ->where('type', 'ocr')->whereIn('status', ['queued', 'processing'])->first();
@@ -84,10 +87,10 @@ class ProcessingJobController extends Controller
         ]);
         abort_if(empty($data['documentoId']) && empty($data['expedienteId']), 422, 'Indica un documento o un expediente.');
 
-        $documents = Document::query()->where('organization_id', $request->user()->organization_id)
+        $documents = app(RecordScope::class)->documents($request->user())
             ->when($data['documentoId'] ?? null, fn ($query, $id) => $query->whereKey($id))
             ->when($data['expedienteId'] ?? null, function ($query, $id) use ($request) {
-                $case = LegalCase::query()->where('organization_id', $request->user()->organization_id)->findOrFail($id);
+                $case = app(RecordScope::class)->cases($request->user())->findOrFail($id);
 
                 return $query->where('case_id', $case->id);
             })
@@ -106,6 +109,9 @@ class ProcessingJobController extends Controller
     public function show(Request $request, string $jobId): ProcessingJobResource
     {
         $job = ProcessingJob::query()->where('organization_id', $request->user()->organization_id)->whereKey($jobId)->firstOrFail();
+        $document = app(RecordScope::class)->documents($request->user())->whereKey($job->document_id)->first();
+        abort_if($document === null, 404);
+        $this->authorize('process', $document);
 
         return new ProcessingJobResource($job);
     }

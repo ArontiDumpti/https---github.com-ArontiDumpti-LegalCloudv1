@@ -4,7 +4,7 @@ import { drawIcons } from './icons';
 import { showAuth, toast } from './chrome';
 import { escapeHtml, formatWhen } from './format';
 import { render } from './views';
-import { apiBase, apiMode, canWrite, clearSession, documents, readSession } from './store';
+import { apiBase, apiMode, can, clearSession, documents, readSession } from './store';
 
 export function findDocument(id) { return documents.find((doc) => doc.id === id); }
 export function closeDocumentMenu() { document.querySelector('[data-document-menu-panel]')?.remove(); }
@@ -16,7 +16,8 @@ export function openDocumentMenu(button, documentId) {
 		['download', 'Descargar'],
 		['versions', 'Ver versiones'],
 	];
-	if (canWrite()) actions.push(['edit', 'Editar datos'], ['version', 'Nueva versión'], ['ocr', 'Volver a extraer texto'], ['archive', 'Archivar']);
+	if (can('documents.write')) actions.push(['edit', 'Editar datos'], ['version', 'Nueva versión'], ['archive', 'Archivar']);
+	if (can('documents.process')) actions.push(['ocr', 'Volver a extraer texto']);
 	const menu = document.createElement('div');
 	menu.className = 'row-menu';
 	menu.setAttribute('role', 'menu');
@@ -76,7 +77,9 @@ export async function runDocumentAction(action, documentId, versionId) {
 		return downloadDocument(doc, version);
 	}
 	if (action === 'versions') return showDocumentVersions(doc);
-	if (!canWrite()) return toast('Tu rol puede consultar documentos, no modificarlos.');
+	if (action === 'ocr') {
+		if (!can('documents.process')) return toast('Tu rol puede consultar documentos, no procesarlos.');
+	} else if (!can('documents.write')) return toast('Tu rol puede consultar documentos, no modificarlos.');
 	if (action === 'edit') {
 		const dialog = fillDocumentForm('document-edit-modal', doc);
 		dialog.querySelector('[name=title]').value = doc.title || '';

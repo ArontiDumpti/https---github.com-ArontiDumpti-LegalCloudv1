@@ -149,4 +149,3 @@ Ejecútalo en otra terminal, con la misma carpeta `Legalcc2`, mientras `php arti
 **`npm ci` falla por certificados en Windows.** Vuelve a lanzarlo con `$env:NODE_OPTIONS="--use-system-ca"` en la misma ventana de PowerShell.
 
 Más detalle de API, cifrado y búsqueda está en `Legalcc2/docs/`.
-eña se pide en consola y debe tener al menos 12 caracteres.

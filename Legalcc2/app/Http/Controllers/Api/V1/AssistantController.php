@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\Access\RecordScope;
 use App\Domain\AI\EmbeddingProviderFailed;
 use App\Domain\AI\EmbeddingProviderNotConfigured;
 use App\Domain\AI\LlmProviderFailed;
@@ -71,7 +72,8 @@ class AssistantController extends Controller
     public function summarize(Request $request, AuditLogger $audit): JsonResponse
     {
         $data = $request->validate(['documentoId' => ['required', 'uuid']]);
-        $document = Document::query()->where('organization_id', $request->user()->organization_id)->with('currentVersion')->findOrFail($data['documentoId']);
+        $document = app(RecordScope::class)->documents($request->user())->with('currentVersion')->findOrFail($data['documentoId']);
+        $this->authorize('view', $document);
         abort_unless($document->current_version_id, 409, 'El documento no tiene una versión almacenada.');
         $text = trim((string) $document->currentVersion?->extracted_text);
         $summary = $text === ''
@@ -102,6 +104,9 @@ class AssistantController extends Controller
     {
         $job = ProcessingJob::query()->where('organization_id', $request->user()->organization_id)
             ->where('type', 'summary')->whereKey($summaryId)->firstOrFail();
+        $document = app(RecordScope::class)->documents($request->user())->whereKey($job->document_id)->first();
+        abort_if($document === null, 404);
+        $this->authorize('view', $document);
 
         return response()->json([
             'id' => $job->id,
@@ -130,10 +135,14 @@ class AssistantController extends Controller
         $audit->record($request, $request->user(), 'assistant.query', 'conversation', $conversation->id, ['questionMessageId' => $question->id]);
 
         try {
-            $result = $answers->answer($data['question'], $request->user()->organization_id, [
+            $filters = array_filter([
                 'caseId' => $data['caseId'] ?? $conversation->case_id,
                 'documentIds' => $data['documentIds'] ?? null,
-            ], $data['answerMode'] ?? 'answer');
+            ], fn (mixed $value): bool => $value !== null);
+            $narrowed = app(RecordScope::class)->narrow($request->user(), $filters);
+            $result = $narrowed === null
+                ? ['content' => 'No encontré fragmentos indexados y autorizados que permitan responder esta pregunta.', 'citations' => []]
+                : $answers->answer($data['question'], $request->user()->organization_id, $narrowed, $data['answerMode'] ?? 'answer');
         } catch (EmbeddingProviderNotConfigured) {
             $answer->update(['status' => 'failed', 'error_code' => 'embedding_provider_unavailable']);
 
@@ -169,7 +178,11 @@ class AssistantController extends Controller
         }
 
         $answer->update(['content' => $result['content'], 'status' => 'completed']);
+        $visibleDocuments = app(RecordScope::class)->documents($request->user())->pluck('id')->all();
         foreach ($result['citations'] as $index => $citation) {
+            if (! in_array($citation['documentId'] ?? '', $visibleDocuments, true)) {
+                continue;
+            }
             Citation::query()->create([
                 'assistant_message_id' => $answer->id,
                 'reference_number' => $citation['reference'] ?? $index + 1,

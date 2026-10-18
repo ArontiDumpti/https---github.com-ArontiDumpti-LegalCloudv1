@@ -15,15 +15,23 @@ class AssistantMessageResource extends JsonResource
             'role' => $this->role,
             'content' => $this->content,
             'status' => $this->status,
-            'citations' => $this->whenLoaded('citations', fn () => $this->citations->map(fn ($citation) => [
-                'reference' => $citation->reference_number,
-                'documentId' => $citation->document_id,
-                'versionId' => $citation->document_version_id,
-                'title' => $citation->document?->title,
-                'page' => $citation->page,
-                'excerpt' => $citation->excerpt,
-                'relevance' => (float) $citation->relevance,
-            ])),
+            'citations' => $this->whenLoaded('citations', function () use ($request) {
+                $user = $request->user();
+
+                return $this->citations->filter(function ($citation) use ($user) {
+                    $document = $citation->document;
+
+                    return $user && $document && $document->organization_id === $user->organization_id;
+                })->values()->map(fn ($citation) => [
+                    'reference' => $citation->reference_number,
+                    'documentId' => $citation->document_id,
+                    'versionId' => $citation->document_version_id,
+                    'title' => $citation->document?->title,
+                    'page' => $citation->page,
+                    'excerpt' => $citation->excerpt,
+                    'relevance' => (float) $citation->relevance,
+                ]);
+            }),
             'createdAt' => $this->created_at,
         ];
     }

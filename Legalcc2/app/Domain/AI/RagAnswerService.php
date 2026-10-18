@@ -4,6 +4,7 @@ namespace App\Domain\AI;
 
 use App\Domain\AI\Contracts\LlmProvider;
 use App\Domain\Documents\ReciprocalRankFusion;
+use App\Models\Document;
 use App\Models\DocumentChunk;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -17,7 +18,7 @@ class RagAnswerService
     /** @return array{content: string, citations: list<array<string, mixed>>} */
     public function answer(string $question, string $organizationId, array $filters = [], string $mode = 'answer'): array
     {
-        $sources = $this->retrieve($question, $organizationId, $filters);
+        $sources = $this->onlyAuthorized($this->retrieve($question, $organizationId, $filters), $organizationId);
         if ($sources === []) {
             return [
                 'content' => 'No encontré fragmentos indexados y autorizados que permitan responder esta pregunta.',
@@ -142,8 +143,23 @@ class RagAnswerService
 
     /**
      * @param  list<array<string, mixed>>  $sources
-     * @return list<array{content: string, citation: array<string, mixed>}>
+     * @return list<array<string, mixed>>
      */
+    private function onlyAuthorized(array $sources, string $organizationId): array
+    {
+        $ids = collect($sources)->map(fn (array $source) => $source['citation']['documentId'] ?? null)->filter()->unique()->values();
+        if ($ids->isEmpty()) {
+            return [];
+        }
+
+        $allowed = Document::query()->where('organization_id', $organizationId)->whereIn('id', $ids)->pluck('id')->all();
+
+        return array_values(array_filter(
+            $sources,
+            fn (array $source): bool => in_array($source['citation']['documentId'] ?? '', $allowed, true),
+        ));
+    }
+
     private function finalize(array $sources): array
     {
         return collect($sources)->sortByDesc('score')->take(5)->values()->map(function (array $source, int $index): array {

@@ -9,7 +9,7 @@ class StoreCategoryRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return in_array($this->user()?->role, ['administrator', 'records_manager'], true);
+        return $this->user()?->allows('categories.manage') === true;
     }
 
     public function rules(): array

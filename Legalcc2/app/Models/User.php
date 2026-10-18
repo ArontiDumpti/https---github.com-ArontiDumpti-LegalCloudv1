@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Domain\Identity\RoleCatalog;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -92,5 +93,16 @@ class User extends Authenticatable
     public function conversations(): HasMany
     {
         return $this->hasMany(Conversation::class);
+    }
+
+    public function allows(string $permission): bool
+    {
+        return app(RoleCatalog::class)->allows($this, $permission);
+    }
+
+    /** @return list<string> */
+    public function permissionNames(): array
+    {
+        return app(RoleCatalog::class)->permissionsFor($this);
     }
 }

@@ -57,6 +57,7 @@ export const users = [
 export const state = {
     view: 'dashboard',
     filter: 'all',
+    categoryFilter: 'all',
     query: '',
     searchHits: null,
     conversationId: null,
@@ -90,22 +91,50 @@ export function clearSession() {
     state.organization = null;
 }
 
+const permissionsByRole = {
+    administrator: ['users.manage', 'cases.read', 'cases.write', 'documents.read', 'documents.write', 'documents.process', 'categories.read', 'categories.manage', 'search.use', 'assistant.use', 'audit.read', 'notifications.read'],
+    records_manager: ['cases.read', 'cases.write', 'documents.read', 'documents.write', 'documents.process', 'categories.read', 'search.use', 'assistant.use', 'audit.read', 'notifications.read'],
+    analyst: ['cases.read', 'cases.write', 'documents.read', 'documents.write', 'documents.process', 'categories.read', 'search.use', 'assistant.use', 'notifications.read'],
+    consultant: ['cases.read', 'documents.read', 'categories.read', 'search.use', 'assistant.use', 'notifications.read'],
+};
+
+const demoPermissions = [
+    'users.manage', 'cases.read', 'cases.write', 'documents.read', 'documents.write', 'documents.process',
+    'categories.read', 'categories.manage', 'search.use', 'assistant.use', 'audit.read', 'notifications.read',
+];
+
+export function permissions() {
+    if (apiMode === 'demo') return demoPermissions;
+    if (Array.isArray(state.user?.permissions)) return state.user.permissions;
+    return permissionsByRole[state.user?.role] || permissionsByRole.consultant;
+}
+
+export function can(permission) {
+    return permissions().includes(permission);
+}
+
 export function canWrite() {
-    return apiMode === 'demo' || ['administrator', 'records_manager', 'analyst'].includes(state.user?.role);
+    return can('cases.write') || can('documents.write');
 }
 
 export function canAudit() {
-    return apiMode === 'demo' || ['administrator', 'records_manager'].includes(state.user?.role);
+    return can('audit.read');
 }
 
 export function canManageUsers() {
-    return apiMode === 'demo' || state.user?.role === 'administrator';
+    return can('users.manage');
 }
 
 export function allowedViews() {
-    const views = ['dashboard', 'cases', 'documents', 'categories', 'search', 'assistant', 'notifications', 'settings'];
-    if (canWrite()) views.push('ocr');
-    if (canManageUsers()) views.push('users');
-    if (canAudit()) views.push('audit');
+    const views = ['dashboard', 'settings'];
+    if (can('cases.read')) views.push('cases');
+    if (can('documents.read')) views.push('documents');
+    if (can('categories.read')) views.push('categories');
+    if (can('documents.process')) views.push('ocr');
+    if (can('search.use')) views.push('search');
+    if (can('assistant.use')) views.push('assistant');
+    if (can('notifications.read')) views.push('notifications');
+    if (can('users.manage')) views.push('users');
+    if (can('audit.read')) views.push('audit');
     return views;
 }

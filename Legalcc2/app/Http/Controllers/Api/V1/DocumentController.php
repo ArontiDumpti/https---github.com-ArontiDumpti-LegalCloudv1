@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\Access\RecordScope;
 use App\Domain\AI\VectorIndexService;
 use App\Domain\Audit\AuditLogger;
 use App\Domain\Documents\DocumentTextSearch;
@@ -32,9 +33,10 @@ use Throwable;
 
 class DocumentController extends Controller
 {
-    public function index(Request $request)
+    public function index(Request $request, RecordScope $scope)
     {
-        $documents = Document::query()->where('organization_id', $request->user()->organization_id)
+        $this->authorize('viewAny', Document::class);
+        $documents = $scope->documents($request->user())
             ->with('currentVersion')
             ->when($request->query('caseId'), fn (Builder $query, string $id) => $query->where('case_id', $id))
             ->when($request->query('categoryId'), fn (Builder $query, string $id) => $query->where('category_id', $id))
@@ -59,7 +61,9 @@ class DocumentController extends Controller
 
         try {
             $document = DB::transaction(function () use ($request, $audit, $data, $file, &$path): Document {
-                $case = LegalCase::query()->where('organization_id', $request->user()->organization_id)->findOrFail($data['caseId']);
+                $case = app(RecordScope::class)->cases($request->user())->findOrFail($data['caseId']);
+                $this->authorize('view', $case);
+                $this->authorize('create', Document::class);
                 $document = Document::query()->create([
                     'organization_id' => $request->user()->organization_id,
                     'case_id' => $case->id,
@@ -90,12 +94,16 @@ class DocumentController extends Controller
 
     public function show(Request $request, string $documentId): DocumentResource
     {
-        return new DocumentResource($this->findDocument($request, $documentId)->load('currentVersion'));
+        $document = $this->findDocument($request, $documentId);
+        $this->authorize('view', $document);
+
+        return new DocumentResource($document->load('currentVersion'));
     }
 
     public function update(UpdateDocumentRequest $request, string $documentId, AuditLogger $audit): DocumentResource
     {
         $document = $this->findDocument($request, $documentId);
+        $this->authorize('update', $document);
         $data = $request->validated();
         $changes = [];
         foreach (['title', 'description'] as $field) {
@@ -115,6 +123,7 @@ class DocumentController extends Controller
     public function destroy(Request $request, string $documentId, AuditLogger $audit): JsonResponse
     {
         $document = $this->findDocument($request, $documentId);
+        $this->authorize('delete', $document);
         $document->delete();
         $audit->record($request, $request->user(), 'document.archived', 'document', $document->id);
 
@@ -124,6 +133,7 @@ class DocumentController extends Controller
     public function versions(Request $request, string $documentId)
     {
         $document = $this->findDocument($request, $documentId);
+        $this->authorize('view', $document);
 
         return DocumentVersionResource::collection($document->versions()->get());
     }
@@ -131,6 +141,7 @@ class DocumentController extends Controller
     public function storeVersion(UploadDocumentVersionRequest $request, string $documentId, AuditLogger $audit): JsonResponse
     {
         $document = $this->findDocument($request, $documentId);
+        $this->authorize('update', $document);
         $file = $request->file('file');
         $path = null;
 
@@ -163,7 +174,9 @@ class DocumentController extends Controller
     public function download(Request $request, string $documentId, string $versionId)
     {
         $document = $this->findDocument($request, $documentId);
+        $this->authorize('download', $document);
         $version = $document->versions()->whereKey($versionId)->firstOrFail();
+        app(AuditLogger::class)->record($request, $request->user(), 'document.downloaded', 'document', $document->id, ['versionId' => $version->id]);
         $storedFile = Storage::disk($version->disk)->get($version->path);
         $contents = (int) $version->file_encryption_version >= 1
             ? Crypt::decryptString($storedFile)
@@ -239,7 +252,9 @@ class DocumentController extends Controller
 
     public function beginUpload(Request $request, string $caseId): JsonResponse
     {
-        $case = LegalCase::query()->where('organization_id', $request->user()->organization_id)->findOrFail($caseId);
+        $case = app(RecordScope::class)->cases($request->user())->findOrFail($caseId);
+        $this->authorize('view', $case);
+        $this->authorize('create', Document::class);
         $data = $request->validate([
             'title' => ['required', 'string', 'min:1', 'max:200'],
             'description' => ['nullable', 'string', 'max:5000'],
@@ -283,7 +298,10 @@ class DocumentController extends Controller
 
     public function showVersion(Request $request, string $documentId, string $versionId): DocumentVersionResource
     {
-        return new DocumentVersionResource($this->findVersion($request, $documentId, $versionId));
+        $document = $this->findDocument($request, $documentId);
+        $this->authorize('view', $document);
+
+        return new DocumentVersionResource($document->versions()->whereKey($versionId)->firstOrFail());
     }
 
     public function confirmVersion(Request $request, string $documentId, string $versionId, AuditLogger $audit): DocumentVersionResource
@@ -298,7 +316,9 @@ class DocumentController extends Controller
 
     public function versionText(Request $request, string $documentId, string $versionId): JsonResponse
     {
-        $version = $this->findVersion($request, $documentId, $versionId);
+        $document = $this->findDocument($request, $documentId);
+        $this->authorize('view', $document);
+        $version = $document->versions()->whereKey($versionId)->firstOrFail();
 
         return response()->json([
             'versionId' => $version->id,
@@ -316,7 +336,7 @@ class DocumentController extends Controller
 
     public function storeExample(Request $request, AuditLogger $audit): JsonResponse
     {
-        $case = LegalCase::query()->where('organization_id', $request->user()->organization_id)->latest()->first();
+        $case = app(RecordScope::class)->cases($request->user())->latest()->first();
         abort_unless($case, 422, 'Crea un expediente antes de generar un documento de ejemplo.');
         $file = \Illuminate\Http\UploadedFile::fake()->createWithContent('ejemplo-legalcloud.txt', "Documento de ejemplo\nOrganización: expediente {$case->reference}\n");
         $request->files->set('file', $file);
@@ -328,6 +348,7 @@ class DocumentController extends Controller
     private function promoteVersion(Request $request, string $documentId, string $versionId, AuditLogger $audit, string $action): DocumentVersionResource
     {
         $document = $this->findDocument($request, $documentId);
+        $this->authorize('update', $document);
         $version = $this->findVersion($request, $documentId, $versionId);
         $document->update([
             'current_version_id' => $version->id,
@@ -366,6 +387,14 @@ class DocumentController extends Controller
         $page = (int) ($data['page'] ?? 1);
         $perPage = min(max((int) ($data['perPage'] ?? 20), 1), 100);
         $query = trim((string) $data['query']);
+        $narrowed = app(RecordScope::class)->narrow($user, $data);
+        if ($narrowed === null) {
+            return [
+                'data' => [],
+                'meta' => ['currentPage' => $page, 'perPage' => $perPage, 'total' => 0, 'lastPage' => 1],
+            ];
+        }
+        $data = $narrowed;
         $organizationId = $user->organization_id;
         $vectors = app(VectorIndexService::class);
         $textSearch = app(DocumentTextSearch::class);
@@ -384,7 +413,7 @@ class DocumentController extends Controller
 
     private function findDocument(Request $request, string $documentId): Document
     {
-        return Document::query()->where('organization_id', $request->user()->organization_id)->whereKey($documentId)->firstOrFail();
+        return app(RecordScope::class)->documents($request->user())->whereKey($documentId)->firstOrFail();
     }
 
     private function persistVersion(Document $document, mixed $file, string $uploadedBy, ?string $changeNote, ?string &$storedPath): DocumentVersion

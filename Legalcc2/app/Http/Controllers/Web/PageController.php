@@ -58,6 +58,11 @@ class PageController extends Controller
         return $this->page('notifications');
     }
 
+    public function audit(): View
+    {
+        return $this->page('audit');
+    }
+
     public function profile(): View
     {
         return $this->page('settings', 'profile');

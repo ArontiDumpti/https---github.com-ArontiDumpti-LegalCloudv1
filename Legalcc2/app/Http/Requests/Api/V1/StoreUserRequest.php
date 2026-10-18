@@ -10,7 +10,7 @@ class StoreUserRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->role === 'administrator';
+        return $this->user()?->allows('users.manage') === true;
     }
 
     public function rules(): array

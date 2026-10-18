@@ -5,6 +5,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use App\Http\Middleware\EnsureActiveOrganization;
+use App\Http\Middleware\RequirePermission;
 use App\Http\Middleware\RequireRole;
 use App\Domain\AI\EmbeddingProviderFailed;
 use App\Domain\AI\ProviderNotConfigured;
@@ -20,6 +21,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'organization.active' => EnsureActiveOrganization::class,
             'role' => RequireRole::class,
+            'permission' => RequirePermission::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -15,6 +15,8 @@ class CategoryController extends Controller
 {
     public function index(Request $request)
     {
+        $this->authorize('viewAny', Category::class);
+
         return CategoryResource::collection(Category::query()->where('organization_id', $request->user()->organization_id)->orderBy('name')->get());
     }
 
@@ -28,13 +30,16 @@ class CategoryController extends Controller
 
     public function show(Request $request, string $categoryId): CategoryResource
     {
-        return new CategoryResource($this->find($request, $categoryId));
+        $category = $this->find($request, $categoryId);
+        $this->authorize('view', $category);
+
+        return new CategoryResource($category);
     }
 
     public function update(Request $request, string $categoryId, AuditLogger $audit): CategoryResource
     {
-        $this->ensureCanManage($request);
         $category = $this->find($request, $categoryId);
+        $this->authorize('update', $category);
         $data = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'min:1', 'max:120', Rule::unique('categories', 'name')->where('organization_id', $request->user()->organization_id)->ignore($category->id)],
             'description' => ['sometimes', 'nullable', 'string', 'max:1000'],
@@ -48,17 +53,12 @@ class CategoryController extends Controller
 
     public function deactivate(Request $request, string $categoryId, AuditLogger $audit): CategoryResource
     {
-        $this->ensureCanManage($request);
         $category = $this->find($request, $categoryId);
+        $this->authorize('deactivate', $category);
         $category->forceFill(['active' => false])->save();
         $audit->record($request, $request->user(), 'category.deactivated', 'category', $category->id);
 
         return new CategoryResource($category);
-    }
-
-    private function ensureCanManage(Request $request): void
-    {
-        abort_unless(in_array($request->user()->role, ['administrator', 'records_manager'], true), 403);
     }
 
     private function find(Request $request, string $categoryId): Category

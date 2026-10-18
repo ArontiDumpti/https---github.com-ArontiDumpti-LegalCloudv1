@@ -39,6 +39,24 @@ class RoleCatalog
         return array_values(config('legalcloud.permissions', []));
     }
 
+    /** @return list<string> */
+    public function permissionsFor(\App\Models\User $user): array
+    {
+        return $this->find($user->role, $user->organization)['permissions'];
+    }
+
+    public function allows(\App\Models\User $user, string $permission): bool
+    {
+        return in_array($permission, $this->permissionsFor($user), true);
+    }
+
+    public function homePath(\App\Models\User $user): string
+    {
+        $home = config('legalcloud.roles.'.$user->role.'.home');
+
+        return is_string($home) && str_starts_with($home, '/') ? $home : '/dashboard';
+    }
+
     /** @param  list<string>  $permissions */
     public function replacePermissions(Organization $organization, string $roleId, array $permissions): array
     {

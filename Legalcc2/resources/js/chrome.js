@@ -1,12 +1,14 @@
 import { icon, drawIcons } from './icons';
 import { escapeHtml, formatWhen, initials } from './format';
-import { allowedViews, apiMode, canAudit, canManageUsers, cases, roleLabel, state } from './store';
+import { allowedViews, apiMode, can, cases, roleLabel, state } from './store';
 
 export function applyRoleNav() {
 	const allowed = new Set(allowedViews());
 	document.querySelectorAll('.side-nav [data-nav]').forEach((button) => { button.hidden = !allowed.has(button.dataset.nav); });
 	const adminLabel = document.querySelector('.nav-label-spaced');
-	if (adminLabel) adminLabel.hidden = !canManageUsers() && !canAudit();
+	if (adminLabel) adminLabel.hidden = !['users', 'audit'].some((view) => allowed.has(view));
+	const search = document.querySelector('.global-search');
+	if (search) search.hidden = !can('search.use');
 }
 
 export function showAuth(visible) {

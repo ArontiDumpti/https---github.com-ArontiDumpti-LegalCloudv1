@@ -27,6 +27,7 @@ return [
         'documents.read',
         'documents.write',
         'documents.process',
+        'categories.read',
         'categories.manage',
         'search.use',
         'assistant.use',
@@ -36,19 +37,23 @@ return [
     'roles' => [
         'administrator' => [
             'label' => 'Administrador',
-            'permissions' => ['users.manage', 'cases.read', 'cases.write', 'documents.read', 'documents.write', 'documents.process', 'categories.manage', 'search.use', 'assistant.use', 'audit.read', 'notifications.read'],
+            'home' => '/dashboard',
+            'permissions' => ['users.manage', 'cases.read', 'cases.write', 'documents.read', 'documents.write', 'documents.process', 'categories.read', 'categories.manage', 'search.use', 'assistant.use', 'audit.read', 'notifications.read'],
         ],
         'records_manager' => [
             'label' => 'Responsable documental',
-            'permissions' => ['cases.read', 'cases.write', 'documents.read', 'documents.write', 'documents.process', 'categories.manage', 'search.use', 'assistant.use', 'audit.read', 'notifications.read'],
+            'home' => '/dashboard',
+            'permissions' => ['cases.read', 'cases.write', 'documents.read', 'documents.write', 'documents.process', 'categories.read', 'search.use', 'assistant.use', 'audit.read', 'notifications.read'],
         ],
         'analyst' => [
             'label' => 'Especialista / analista',
-            'permissions' => ['cases.read', 'cases.write', 'documents.read', 'documents.write', 'documents.process', 'search.use', 'assistant.use', 'notifications.read'],
+            'home' => '/dashboard',
+            'permissions' => ['cases.read', 'cases.write', 'documents.read', 'documents.write', 'documents.process', 'categories.read', 'search.use', 'assistant.use', 'notifications.read'],
         ],
         'consultant' => [
             'label' => 'Usuario consultor',
-            'permissions' => ['cases.read', 'documents.read', 'search.use', 'assistant.use', 'notifications.read'],
+            'home' => '/dashboard',
+            'permissions' => ['cases.read', 'documents.read', 'categories.read', 'search.use', 'assistant.use', 'notifications.read'],
         ],
     ],
 ];

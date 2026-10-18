@@ -50,6 +50,6 @@ class RoleController extends Controller
 
     private function ensureAdministrator(Request $request): void
     {
-        abort_unless($request->user()->role === 'administrator', 403);
+        abort_unless($request->user()->allows('users.manage'), 403);
     }
 }

@@ -76,7 +76,7 @@
 }
 
 .nav-label-spaced { margin-top: 28px; }
-.nav-link[hidden], .nav-label[hidden] { display: none; }
+.nav-link[hidden], .nav-label[hidden], .global-search[hidden] { display: none; }
 
 .side-nav { display: flex; flex-direction: column; gap: 6px; }
 

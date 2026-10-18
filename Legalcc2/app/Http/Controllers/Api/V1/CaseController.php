@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\Access\RecordScope;
 use App\Domain\Audit\AuditLogger;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\StoreCaseRequest;
@@ -22,9 +23,10 @@ use Illuminate\Pagination\LengthAwarePaginator;
 
 class CaseController extends Controller
 {
-    public function index(Request $request)
+    public function index(Request $request, RecordScope $scope)
     {
-        $query = LegalCase::query()->where('organization_id', $request->user()->organization_id)
+        $this->authorize('viewAny', LegalCase::class);
+        $query = $scope->cases($request->user())
             ->withCount('documents')
             ->when($request->query('status'), fn ($query, $status) => $query->where('status', $status))
             ->when($request->query('categoryId'), fn ($query, $id) => $query->where('category_id', $id));
@@ -71,12 +73,16 @@ class CaseController extends Controller
 
     public function show(Request $request, string $caseId): CaseResource
     {
-        return new CaseResource($this->findInOrganization($request, $caseId)->loadCount('documents'));
+        $case = $this->findInOrganization($request, $caseId);
+        $this->authorize('view', $case);
+
+        return new CaseResource($case->loadCount('documents'));
     }
 
     public function update(UpdateCaseRequest $request, string $caseId, AuditLogger $audit): CaseResource
     {
         $case = $this->findInOrganization($request, $caseId);
+        $this->authorize('update', $case);
         $data = $request->validated();
         $changes = [];
         foreach (['title', 'description', 'status'] as $field) {
@@ -99,9 +105,10 @@ class CaseController extends Controller
     public function documents(Request $request, string $caseId)
     {
         $case = $this->findInOrganization($request, $caseId);
+        $this->authorize('view', $case);
 
         return DocumentResource::collection(
-            Document::query()->where('organization_id', $request->user()->organization_id)
+            app(RecordScope::class)->documents($request->user())
                 ->where('case_id', $case->id)->with('currentVersion')->latest()->get()
         );
     }
@@ -109,6 +116,7 @@ class CaseController extends Controller
     public function participants(Request $request, string $caseId)
     {
         $case = $this->findInOrganization($request, $caseId);
+        $this->authorize('view', $case);
         $ids = CaseParticipant::query()->where('case_id', $case->id)->pluck('user_id');
         $users = User::query()->where('organization_id', $request->user()->organization_id)->whereIn('public_id', $ids)->get();
 
@@ -119,6 +127,7 @@ class CaseController extends Controller
     {
         $this->ensureCanWrite($request);
         $case = $this->findInOrganization($request, $caseId);
+        $this->authorize('update', $case);
         $data = $request->validate([
             'usuarioId' => ['required', 'uuid', Rule::exists('users', 'public_id')->where('organization_id', $request->user()->organization_id)],
         ]);
@@ -135,6 +144,7 @@ class CaseController extends Controller
     {
         $this->ensureCanWrite($request);
         $case = $this->findInOrganization($request, $caseId);
+        $this->authorize('update', $case);
         $participant = CaseParticipant::query()->where('case_id', $case->id)->where('user_id', $userId)->firstOrFail();
         $participant->delete();
         $audit->record($request, $request->user(), 'case.participant_removed', 'case', $case->id, ['usuarioId' => $userId]);
@@ -149,6 +159,7 @@ class CaseController extends Controller
             'status' => ['required', Rule::in(['draft', 'open', 'in_review', 'closed', 'archived'])],
         ]);
         $case = $this->findInOrganization($request, $caseId);
+        $this->authorize('update', $case);
         $from = $case->status;
         $case->forceFill(['status' => $data['status']])->save();
         $audit->record($request, $request->user(), 'case.status_changed', 'case', $case->id, ['from' => $from, 'to' => $data['status']]);
@@ -158,7 +169,9 @@ class CaseController extends Controller
 
     public function trace(Request $request, string $caseId)
     {
+        abort_unless($request->user()->allows('audit.read'), 403);
         $case = $this->findInOrganization($request, $caseId);
+        $this->authorize('view', $case);
 
         return AuditEventResource::collection(
             AuditEvent::query()->where('organization_id', $request->user()->organization_id)
@@ -168,11 +181,11 @@ class CaseController extends Controller
 
     private function ensureCanWrite(Request $request): void
     {
-        abort_unless(in_array($request->user()->role, ['administrator', 'records_manager', 'analyst'], true), 403);
+        abort_unless($request->user()->allows('cases.write'), 403);
     }
 
     private function findInOrganization(Request $request, string $caseId): LegalCase
     {
-        return LegalCase::query()->where('organization_id', $request->user()->organization_id)->whereKey($caseId)->firstOrFail();
+        return app(RecordScope::class)->cases($request->user())->whereKey($caseId)->firstOrFail();
     }
 }

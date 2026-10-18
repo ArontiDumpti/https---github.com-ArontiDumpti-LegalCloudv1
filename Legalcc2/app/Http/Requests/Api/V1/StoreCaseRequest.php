@@ -10,7 +10,7 @@ class StoreCaseRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return in_array($this->user()?->role, ['administrator', 'records_manager', 'analyst'], true);
+        return $this->user()?->allows('cases.write') === true;
     }
 
     public function rules(): array

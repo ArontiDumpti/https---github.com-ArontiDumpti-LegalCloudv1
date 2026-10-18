@@ -33,12 +33,13 @@
             <button class="nav-link is-active" data-nav="dashboard"><i data-icon="grid"></i><span>Resumen</span></button>
             <button class="nav-link" data-nav="cases"><i data-icon="folder"></i><span>Expedientes</span><span class="nav-count" data-case-count>0</span></button>
             <button class="nav-link" data-nav="documents"><i data-icon="file"></i><span>Documentos</span></button>
-            <button class="nav-link" data-nav="categories"><i data-icon="folder"></i><span>Categorías</span></button>
             <button class="nav-link" data-nav="ocr"><i data-icon="scan"></i><span>Procesamiento</span></button>
             <button class="nav-link" data-nav="search"><i data-icon="search"></i><span>Búsqueda inteligente</span></button>
             <button class="nav-link" data-nav="assistant"><i data-icon="sparkles"></i><span>Asistente IA</span><span class="nav-new">IA</span></button>
+            <button class="nav-link" data-nav="notifications"><i data-icon="bell"></i><span>Notificaciones</span></button>
             <p class="nav-label nav-label-spaced">ADMINISTRACIÓN</p>
             <button class="nav-link" data-nav="users"><i data-icon="users"></i><span>Usuarios y roles</span></button>
+            <button class="nav-link" data-nav="categories"><i data-icon="folder"></i><span>Categorías</span></button>
             <button class="nav-link" data-nav="audit"><i data-icon="activity"></i><span>Auditoría</span></button>
         </nav>
         <div class="sidebar-bottom">

@@ -3,7 +3,7 @@ import { render } from './views';
 import { formatWhen, initials } from './format';
 import { paths } from './endpoints';
 import {
-    apiBase, apiMode, canAudit, canManageUsers, cases, categories, clearSession, documents, readSession, roleLabel, state, users,
+    apiBase, apiMode, can, canAudit, canManageUsers, cases, categories, clearSession, documents, readSession, roleLabel, state, users,
 } from './store';
 
 export async function request(path, options = {}) {
@@ -28,7 +28,7 @@ export async function webRequest(path, options = {}) {
 export async function loadApiCollections() {
 	if (apiMode === 'demo' || !readSession()?.accessToken) return;
 	const [caseResult, documentResult, userResult, dashboardResult, auditResult, notificationResult, categoryResult] = await Promise.allSettled([
-		request(`${paths.cases}?perPage=100`), request(`${paths.documents}?perPage=100`), canManageUsers() ? request(`${paths.users}?perPage=100`) : Promise.resolve({ data: [] }), request(paths.dashboard), canAudit() ? request(`${paths.audit}?perPage=8`) : Promise.resolve({ data: [] }), request(`${paths.notifications}?perPage=8`), request(paths.categories),
+		request(`${paths.cases}?perPage=100`), request(`${paths.documents}?perPage=100`), canManageUsers() ? request(`${paths.users}?perPage=100`) : Promise.resolve({ data: [] }), request(paths.dashboard), canAudit() ? request(`${paths.audit}?perPage=8`) : Promise.resolve({ data: [] }), request(`${paths.notifications}?perPage=8`), can('categories.read') ? request(paths.categories) : Promise.resolve({ data: [] }),
 	]);
 	if (caseResult.status === 'rejected' && documentResult.status === 'rejected') {
 		toast('No se pudo conectar con el API. Revisa la sesión y el backend.');
@@ -38,8 +38,8 @@ export async function loadApiCollections() {
 		...item, documents: item.documentCount || 0, owner: users.find((user) => user.id === item.ownerId)?.name || 'Equipo legal', updated: formatWhen(item.updatedAt),
 	})));
 	if (userResult.status === 'fulfilled') users.splice(0, users.length, ...(userResult.value.data || []).map((item) => ({
-		id: item.id, initials: initials(item.name), name: item.name, email: item.email, role: roleLabel[item.role] || item.role,
-		status: item.status === 'active' ? 'Activo' : item.status === 'invited' ? 'Invitado' : 'Suspendido',
+		id: item.id, initials: initials(item.name), name: item.name, email: item.email, role: roleLabel[item.role] || item.role, roleId: item.role,
+		statusId: item.status, status: item.status === 'active' ? 'Activo' : item.status === 'invited' ? 'Invitado' : 'Suspendido',
 	})));
 	if (caseResult.status === 'fulfilled') cases.forEach((item) => { item.owner = users.find((user) => user.id === item.ownerId)?.name || 'Equipo legal'; });
 	if (documentResult.status === 'fulfilled') documents.splice(0, documents.length, ...(documentResult.value.data || []).map((item) => ({

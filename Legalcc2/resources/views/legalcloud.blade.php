@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es" data-api-base="{{ url('/api/v1') }}" data-api-mode="{{ config('legalcloud.api_mode', 'api') }}" data-initial-view="{{ $initialView ?? 'dashboard' }}" data-settings-section="{{ $settingsSection ?? 'profile' }}">
+<html lang="es" class="is-landing" data-api-base="{{ url('/api/v1') }}" data-api-mode="{{ config('legalcloud.api_mode', 'api') }}" data-initial-view="{{ $initialView ?? 'dashboard' }}" data-initial-settings-section="{{ $settingsSection ?? 'profile' }}">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -11,6 +11,79 @@
     <script src="{{ mix('js/app.js') }}" defer></script>
 </head>
 <body>
+<div class="landing-gate" data-landing>
+    <header class="landing-nav">
+        <a class="brand" href="/" aria-label="LegalCloud AI, inicio"><span class="brand-mark">lc<span>.</span></span><span class="brand-name">legalcloud<span>AI</span></span></a>
+        <div class="landing-nav-actions">
+            <a class="button button-quiet" href="#planes">Ver planes</a>
+            <button class="button button-primary" type="button" data-open-login>Iniciar sesión</button>
+        </div>
+    </header>
+    <section class="landing-hero" aria-labelledby="landing-title">
+        <div class="landing-hero-copy">
+            <p class="eyebrow">GESTIÓN DOCUMENTAL LEGAL</p>
+            <h1 id="landing-title">legalcloud<span class="landing-brand-accent">AI</span></h1>
+            <p class="landing-hero-lead">Organiza expedientes, documentos y consultas con IA en un solo espacio de trabajo.</p>
+            <div class="landing-hero-cta">
+                <button class="button button-primary" type="button" data-open-login>Entrar a mi espacio</button>
+                <a class="button button-quiet" href="#planes">Comparar versiones</a>
+            </div>
+        </div>
+        <div class="landing-hero-visual" aria-hidden="true">
+            <div class="landing-hero-panel">
+                <strong>Expedientes, OCR y asistente en un mismo flujo</strong>
+                <span>Diseñado para equipos legales que necesitan control, búsqueda y trazabilidad.</span>
+                <div class="landing-hero-dots"><i></i><i></i><i></i></div>
+            </div>
+        </div>
+    </section>
+    <section class="landing-section" id="planes" aria-labelledby="planes-title">
+        <div class="landing-section-head">
+            <p class="eyebrow">VERSIONES</p>
+            <h2 id="planes-title">Dos versiones del aplicativo</h2>
+            <p>Presentación de los planes Free y Premium. La contratación aún no está habilitada; puedes iniciar sesión si ya tienes cuenta.</p>
+        </div>
+        <div class="landing-plans">
+            <article class="plan-card">
+                <span class="plan-badge">Free</span>
+                <h3>Free</h3>
+                <p class="plan-price"><em>$0</em> / mes</p>
+                <p class="plan-desc">Versión esencial para conocer el flujo documental de tu organización.</p>
+                <div class="plan-preview" aria-hidden="true">
+                    <div class="plan-preview-bar"><span></span><span></span><span></span></div>
+                    <div class="plan-preview-rows"><i></i><i></i><i></i></div>
+                </div>
+                <ul class="plan-list">
+                    <li>Resumen y expedientes básicos</li>
+                    <li>Biblioteca de documentos</li>
+                    <li>1 espacio de trabajo</li>
+                    <li>Soporte por correo</li>
+                </ul>
+                <p class="plan-note">Solo presentación · sin checkout</p>
+                <button class="button button-quiet" type="button" data-open-login>Iniciar sesión</button>
+            </article>
+            <article class="plan-card is-premium">
+                <span class="plan-badge">Premium</span>
+                <h3>Premium</h3>
+                <p class="plan-price"><em>$49</em> / mes</p>
+                <p class="plan-desc">Versión completa con procesamiento, búsqueda inteligente y asistente IA.</p>
+                <div class="plan-preview" aria-hidden="true">
+                    <div class="plan-preview-bar"><span></span><span></span><span></span></div>
+                    <div class="plan-preview-rows"><i></i><i></i><i></i></div>
+                </div>
+                <ul class="plan-list">
+                    <li>Todo lo de Free</li>
+                    <li>OCR y procesamiento de archivos</li>
+                    <li>Búsqueda inteligente y asistente IA</li>
+                    <li>Usuarios, roles y auditoría</li>
+                </ul>
+                <p class="plan-note">Solo presentación · sin checkout</p>
+                <button class="button button-primary" type="button" data-open-login>Iniciar sesión</button>
+            </article>
+        </div>
+    </section>
+    <footer class="landing-footer">LegalCloud AI · Los planes Free y Premium se muestran con fines de presentación.</footer>
+</div>
 <div class="auth-gate" data-auth-gate hidden>
     <form class="auth-card" data-login-form>
         <span class="brand-mark">lc<span>.</span></span>
@@ -21,9 +94,10 @@
         <label>Contraseña<input name="password" type="password" autocomplete="current-password" required minlength="12"></label>
         <p class="auth-error" data-login-error hidden></p>
         <button class="button button-primary" type="submit">Iniciar sesión</button>
+        <button class="button button-quiet" type="button" data-back-landing>Volver a la portada</button>
     </form>
 </div>
-<div class="app-shell">
+<div class="app-shell" hidden>
     <div class="mobile-scrim" data-scrim></div>
     <aside class="sidebar" id="sidebar">
         <a class="brand" href="/" aria-label="LegalCloud AI, inicio"><span class="brand-mark">lc<span>.</span></span><span class="brand-name">legalcloud<span>AI</span></span></a>

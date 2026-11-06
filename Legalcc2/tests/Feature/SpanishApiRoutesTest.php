@@ -70,7 +70,7 @@ class SpanishApiRoutesTest extends TestCase
     {
         $this->get('/expedientes')->assertOk()->assertSee('data-initial-view="cases"', false);
         $this->get('/settings')->assertRedirect('/settings/profile');
-        $this->get('/settings/appearance')->assertOk()->assertSee('data-settings-section="appearance"', false);
+        $this->get('/settings/appearance')->assertOk()->assertSee('data-initial-settings-section="appearance"', false);
     }
 
     private function user(Organization $organization, string $role, string $email): User

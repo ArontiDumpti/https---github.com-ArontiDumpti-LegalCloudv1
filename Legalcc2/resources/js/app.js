@@ -1,6 +1,6 @@
 import { loadApiCollections, request, webRequest } from './api';
 import { paths, viewFromPath, viewPaths } from './endpoints';
-import { closeNavigation, paintChrome, showAuth, toast } from './chrome';
+import { closeNavigation, paintChrome, showGate, showLanding, toast } from './chrome';
 import { closeDocumentMenu, findDocument, openDocumentMenu, runDocumentAction } from './documents';
 import { drawIcons } from './icons';
 import { escapeHtml } from './format';
@@ -68,16 +68,18 @@ document.addEventListener('click',async(event)=>{
 	if(action==='deactivate-category'){if(!can('categories.manage'))return toast('Tu rol no puede desactivar categorías.');const id=event.target.closest('[data-action="deactivate-category"]').dataset.categoryId;if(!window.confirm('¿Desactivar esta categoría?'))return;try{await request(`${paths.categories}/${id}/desactivar`,{method:'POST'});toast('Categoría desactivada.');await loadApiCollections();}catch{toast('No se pudo desactivar la categoría.');}return;}
 	if(action==='invite-user'){if(apiMode==='demo')return toast('En el modo de demostración los usuarios son de ejemplo.');if(!can('users.manage'))return toast('Solo un administrador puede crear usuarios.');return openDialog('user-modal');}
 	if(action==='delete-user'||action==='reactivate-user'){const button=event.target.closest(`[data-action="${action}"]`);if(apiMode==='demo'||!button?.dataset.userId)return toast('En el modo de demostración los usuarios son de ejemplo.');if(!can('users.manage'))return toast('Solo un administrador puede cambiar el acceso de los usuarios.');const name=button.dataset.userName||'este usuario';const suspending=action==='delete-user';if(!window.confirm(suspending?`¿Suspender a ${name}? Perderá el acceso hasta que un administrador lo reactive.`:`¿Reactivar a ${name}?`))return;try{await request(`${paths.user(button.dataset.userId)}/${suspending?'suspender':'reactivar'}`,{method:'POST'});toast(suspending?'Usuario suspendido.':'Usuario reactivado.');await loadApiCollections();}catch{toast('No se pudo actualizar el usuario.');}return;}
-	if(event.target.closest('[data-logout]')){if(apiMode==='demo')return;try{await request(paths.logout,{method:'POST'});}catch{}clearSession();cases.length=0;documents.length=0;users.length=0;state.chat=[];state.conversationId=null;showAuth(true);return;}
+	if(event.target.closest('[data-open-login]')){showGate('login');return;}
+	if(event.target.closest('[data-back-landing]')){showLanding();return;}
+	if(event.target.closest('[data-logout]')){if(apiMode==='demo')return;try{await request(paths.logout,{method:'POST'});}catch{}clearSession();cases.length=0;documents.length=0;users.length=0;state.chat=[];state.conversationId=null;showLanding();return;}
 	if(event.target.closest('[data-dismiss]'))event.target.closest('dialog').close();
 	if(event.target.closest('[data-menu-toggle]')){document.querySelector('#sidebar').classList.toggle('is-open');document.querySelector('[data-scrim]').classList.toggle('is-visible');}
 	if(event.target.closest('[data-scrim]')){document.querySelector('#sidebar').classList.remove('is-open');document.querySelector('[data-scrim]').classList.remove('is-visible');}
 	if(event.target.closest('[data-notifications]')){const pop=document.querySelector('[data-notification-popover]');pop.hidden=!pop.hidden;}
 	const readNotification=event.target.closest('[data-notification-read]');
 	if(readNotification){if(apiMode!=='demo'){try{await request(paths.notificationRead(readNotification.dataset.notificationRead),{method:'POST'});await loadApiCollections();}catch{toast('No se pudo marcar la notificación.');}}return;}
-	const settingsSection=event.target.closest('[data-settings-section]');
-	if(settingsSection){state.settingsSection=settingsSection.dataset.settingsSection;const next=state.settingsSection==='password'?'/settings/password':state.settingsSection==='appearance'?'/settings/appearance':'/settings/profile';if(location.pathname!==next)history.pushState({view:'settings'},'',next);render();return;}
-	if(event.target.closest('[data-delete-profile]')){if(apiMode==='demo')return toast('En el modo de demostración la cuenta es de ejemplo.');if(!window.confirm('¿Suspender tu cuenta? Tendrás que pedir a un administrador que la reactive.'))return;try{await webRequest('/settings/profile',{method:'DELETE'});}catch{}clearSession();showAuth(true);return;}
+	const settingsSection=event.target.closest('button[data-settings-section]');
+	if(settingsSection){state.settingsSection=settingsSection.dataset.settingsSection;state.view='settings';const next=state.settingsSection==='password'?'/settings/password':state.settingsSection==='appearance'?'/settings/appearance':'/settings/profile';if(location.pathname!==next)history.pushState({view:'settings'},'',next);render();return;}
+	if(event.target.closest('[data-delete-profile]')){if(apiMode==='demo')return toast('En el modo de demostración la cuenta es de ejemplo.');if(!window.confirm('¿Suspender tu cuenta? Tendrás que pedir a un administrador que la reactive.'))return;try{await webRequest('/settings/profile',{method:'DELETE'});}catch{}clearSession();showLanding();return;}
 	const suggestion=event.target.closest('[data-prompt]');if(suggestion){changeView('assistant');ask(suggestion.dataset.prompt);}
 	if(event.target.closest('[data-chat-clear]')){state.chat=[];state.conversationId=null;render();}
 });
@@ -86,16 +88,25 @@ document.addEventListener('input',(event)=>{
 	if(event.target.matches('[data-upload-form] input[type=file]')){const file=event.target.files[0];const title=document.querySelector('[data-upload-form] [name=title]');if(file&&!title.value)title.value=file.name.replace(/\.[^.]+$/,'');}
 });
 document.addEventListener('change',(event)=>{
-	if(event.target.matches('[data-status-filter]')){state.filter=event.target.value;render();}
-	if(event.target.matches('[data-category-filter]')){state.categoryFilter=event.target.value;render();}
-	if(event.target.matches('[data-case-status]')){const select=event.target;const id=select.dataset.caseStatus;const status=select.value;if(!can('cases.write'))return;if(apiMode==='demo'){const item=cases.find((entry)=>entry.id===id);if(item)item.status=status;toast('Estado actualizado.');return;}request(`${paths.cases}/${id}/transiciones`,{method:'POST',body:JSON.stringify({status})}).then(()=>loadApiCollections()).then(()=>toast('Estado actualizado.')).catch(()=>{toast('No se pudo cambiar el estado.');loadApiCollections();});}
+	if(event.target.matches('[data-status-filter]')){state.filter=event.target.value;window.requestAnimationFrame(()=>render());return;}
+	if(event.target.matches('[data-category-filter]')){state.categoryFilter=event.target.value;window.requestAnimationFrame(()=>render());return;}
+	if(event.target.matches('[data-case-status]')){
+		const select=event.target;const id=select.dataset.caseStatus;const status=select.value;const item=cases.find((entry)=>entry.id===id);
+		if(!can('cases.write')||!item||item.status===status)return;
+		const previous=item.status;item.status=status;select.disabled=true;
+		if(apiMode==='demo'){select.disabled=false;toast('Estado actualizado.');return;}
+		request(`${paths.cases}/${id}/transiciones`,{method:'POST',body:JSON.stringify({status})})
+			.then(()=>toast('Estado actualizado.'))
+			.catch(()=>{item.status=previous;select.value=previous;toast('No se pudo cambiar el estado.');})
+			.finally(()=>{select.disabled=false;});
+	}
 	if(event.target.matches('[data-user-role]')){const select=event.target;if(!can('users.manage')||apiMode==='demo')return toast('En el modo de demostración los roles son de ejemplo.');request(`${paths.user(select.dataset.userRole)}/roles`,{method:'PUT',body:JSON.stringify({roles:[select.value]})}).then(()=>loadApiCollections()).then(()=>toast('Rol actualizado.')).catch(()=>{toast('No se pudo cambiar el rol.');loadApiCollections();});}
 	if(event.target.matches('[data-appearance]')){localStorage.setItem('legalcloud.appearance',event.target.value);document.documentElement.dataset.theme=event.target.value;toast('Apariencia guardada en este navegador.');}
 });
 document.addEventListener('submit',async(event)=>{
 	if(event.target.matches('[data-login-form]')){
 		event.preventDefault();const form=event.target,error=form.querySelector('[data-login-error]'),payload=Object.fromEntries(new FormData(form));error.hidden=true;
-		try{const response=await fetch(`${apiBase}${paths.login}`,{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify(payload)});if(!response.ok)throw new Error('invalid');const session=await response.json();const user={...session.user,home:session.home||'/dashboard'};writeSession({accessToken:session.accessToken,user,organization:session.organization});state.user=user;state.organization=session.organization;showAuth(false);goHome();paintChrome();render();await loadApiCollections();}catch{error.textContent='Correo o contraseña incorrectos.';error.hidden=false;}
+		try{const response=await fetch(`${apiBase}${paths.login}`,{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify(payload)});if(!response.ok)throw new Error('invalid');const session=await response.json();const user={...session.user,home:session.home||'/dashboard'};writeSession({accessToken:session.accessToken,user,organization:session.organization});state.user=user;state.organization=session.organization;showGate('app');goHome();paintChrome();render();await loadApiCollections();}catch{error.textContent='Correo o contraseña incorrectos.';error.hidden=false;}
 	}
 	if(event.target.matches('[data-category-form]')){
 		event.preventDefault();const form=event.target,payload=Object.fromEntries(new FormData(form));
@@ -158,14 +169,14 @@ function applyInitialView() {
 }
 function boot(){
 	drawIcons();
-	state.settingsSection = document.documentElement.dataset.settingsSection || 'profile';
+	state.settingsSection = document.documentElement.dataset.initialSettingsSection || 'profile';
 	const savedTheme = localStorage.getItem('legalcloud.appearance');
 	if (savedTheme) document.documentElement.dataset.theme = savedTheme;
 	window.addEventListener('popstate', () => { const view = viewFromPath(location.pathname); if (view) changeView(view, false); });
-	if(apiMode==='demo'){applyInitialView();showAuth(false);paintChrome();render();return;}
+	if(apiMode==='demo'){applyInitialView();showGate('app');paintChrome();render();return;}
 	cases.length=0;documents.length=0;users.length=0;categories.length=0;
 	const session=readSession();
-	if(!session?.accessToken){showAuth(true);return;}
-	state.user=session.user;state.organization=session.organization;applyInitialView();showAuth(false);paintChrome();render();loadApiCollections();
+	if(!session?.accessToken){showLanding();return;}
+	state.user=session.user;state.organization=session.organization;applyInitialView();showGate('app');paintChrome();render();loadApiCollections();
 }
 boot();

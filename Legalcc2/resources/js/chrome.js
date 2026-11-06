@@ -11,11 +11,30 @@ export function applyRoleNav() {
 	if (search) search.hidden = !can('search.use');
 }
 
-export function showAuth(visible) {
+/** @param {'landing'|'login'|'app'} mode */
+export function showGate(mode) {
+	const landing = document.querySelector('[data-landing]');
 	const gate = document.querySelector('[data-auth-gate]');
 	const shell = document.querySelector('.app-shell');
-	if (gate) gate.hidden = !visible;
-	if (shell) shell.hidden = visible;
+	const isLanding = mode === 'landing';
+	const isLogin = mode === 'login';
+	const isApp = mode === 'app';
+	if (landing) landing.hidden = !isLanding;
+	if (gate) gate.hidden = !isLogin;
+	if (shell) shell.hidden = !isApp;
+	document.documentElement.classList.toggle('is-landing', isLanding);
+	if (isLogin) {
+		const email = gate?.querySelector('input[name="email"]');
+		window.setTimeout(() => email?.focus(), 0);
+	}
+}
+
+export function showAuth(visible) {
+	showGate(visible ? 'login' : 'app');
+}
+
+export function showLanding() {
+	showGate('landing');
 }
 export function paintChrome() {
 	const organization = state.organization?.name || 'Tu organización';

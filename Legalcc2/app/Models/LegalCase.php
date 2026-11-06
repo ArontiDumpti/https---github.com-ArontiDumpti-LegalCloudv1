@@ -28,7 +28,7 @@ class LegalCase extends Model
     protected function reference(): Attribute
     {
         return Attribute::make(
-            get: fn (string $value): string => (int) $this->reference_encryption_version >= 1 ? Crypt::decryptString($value) : $value,
+            get: fn (string $value): string => $this->decryptStored($value, (int) $this->reference_encryption_version, 'Referencia no disponible'),
             set: fn (string $value): array => [
                 'reference' => Crypt::encryptString(trim($value)),
                 'reference_hash' => self::referenceLookupHash($value),
@@ -39,7 +39,7 @@ class LegalCase extends Model
 
     protected function title(): Attribute
     {
-        return $this->encryptedTextAttribute('title', 'title_encryption_version');
+        return $this->encryptedTextAttribute('title', 'title_encryption_version', 'Expediente no disponible');
     }
 
     protected function description(): Attribute
@@ -52,15 +52,28 @@ class LegalCase extends Model
         return hash_hmac('sha256', mb_strtolower(trim($reference)), (string) config('app.key'));
     }
 
-    private function encryptedTextAttribute(string $field, string $versionField): Attribute
+    private function encryptedTextAttribute(string $field, string $versionField, ?string $fallback = null): Attribute
     {
         return Attribute::make(
-            get: fn (?string $value): ?string => $value === null ? null : ((int) $this->{$versionField} >= 1 ? Crypt::decryptString($value) : $value),
+            get: fn (?string $value): ?string => $value === null ? null : $this->decryptStored($value, (int) $this->{$versionField}, $fallback),
             set: fn (?string $value): array => [
                 $field => $value === null ? null : Crypt::encryptString($value),
                 $versionField => $value === null ? 0 : 1,
             ],
         );
+    }
+
+    private function decryptStored(string $value, int $version, ?string $fallback = null): string
+    {
+        if ($version < 1) {
+            return $value;
+        }
+
+        try {
+            return Crypt::decryptString($value);
+        } catch (\Throwable) {
+            return $fallback ?? '';
+        }
     }
 
     public function organization(): BelongsTo

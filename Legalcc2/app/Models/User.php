@@ -50,7 +50,7 @@ class User extends Authenticatable
     protected function name(): Attribute
     {
         return Attribute::make(
-            get: fn (string $value): string => (int) $this->name_encryption_version >= 1 ? Crypt::decryptString($value) : $value,
+            get: fn (string $value): string => $this->decryptStored($value, (int) $this->name_encryption_version, 'Usuario'),
             set: fn (string $value): array => [
                 'name' => Crypt::encryptString(trim($value)),
                 'name_encryption_version' => 1,
@@ -61,13 +61,26 @@ class User extends Authenticatable
     protected function email(): Attribute
     {
         return Attribute::make(
-            get: fn (string $value): string => (int) $this->email_encryption_version >= 1 ? Crypt::decryptString($value) : $value,
+            get: fn (string $value): string => $this->decryptStored($value, (int) $this->email_encryption_version, ''),
             set: fn (string $value): array => [
                 'email' => Crypt::encryptString(mb_strtolower(trim($value))),
                 'email_hash' => self::emailLookupHash($value),
                 'email_encryption_version' => 1,
             ],
         );
+    }
+
+    private function decryptStored(string $value, int $version, string $fallback = ''): string
+    {
+        if ($version < 1) {
+            return $value;
+        }
+
+        try {
+            return Crypt::decryptString($value);
+        } catch (\Throwable) {
+            return $fallback;
+        }
     }
 
     public static function emailLookupHash(string $email): string

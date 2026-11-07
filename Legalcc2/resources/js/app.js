@@ -167,8 +167,16 @@ function applyInitialView() {
 	if (viewNames[initialView] && allowedViews().includes(initialView)) { state.view = initialView; return; }
 	if (viewNames[initialView]) denyView();
 }
+function bindLandingNav() {
+	const nav = document.querySelector('.landing-nav');
+	if (!nav) return;
+	const sync = () => nav.classList.toggle('is-compact', window.scrollY > 24);
+	sync();
+	window.addEventListener('scroll', sync, { passive: true });
+}
 function boot(){
 	drawIcons();
+	bindLandingNav();
 	state.settingsSection = document.documentElement.dataset.initialSettingsSection || 'profile';
 	const savedTheme = localStorage.getItem('legalcloud.appearance');
 	if (savedTheme) document.documentElement.dataset.theme = savedTheme;

@@ -6,83 +6,133 @@
     <meta name="theme-color" content="#f4f5ef">
     <title>LegalCloud AI | Gestión documental</title>
     <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600" rel="stylesheet">
+    <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600|instrument-serif:400" rel="stylesheet">
     <link rel="stylesheet" href="{{ mix('css/app.css') }}">
     <script src="{{ mix('js/app.js') }}" defer></script>
 </head>
 <body>
 <div class="landing-gate" data-landing>
     <header class="landing-nav">
-        <a class="brand" href="/" aria-label="LegalCloud AI, inicio"><span class="brand-mark">lc<span>.</span></span><span class="brand-name">legalcloud<span>AI</span></span></a>
+        <a class="brand landing-brand" href="#inicio" aria-label="LegalCloud AI, inicio"><span class="brand-mark">lc<span>.</span></span><span class="brand-name">legalcloud<span>AI</span></span></a>
+        <nav class="landing-menu" aria-label="Portada">
+            <a href="#inicio">Inicio</a>
+            <a href="#caracteristicas">Características</a>
+            <a href="#beneficios">Beneficios</a>
+            <a href="#planes">Planes</a>
+        </nav>
         <div class="landing-nav-actions">
-            <a class="button button-quiet" href="#planes">Ver planes</a>
-            <button class="button button-primary" type="button" data-open-login>Iniciar sesión</button>
+            <button class="landing-login" type="button" data-open-login><i data-icon="user"></i>Iniciar sesión</button>
         </div>
     </header>
-    <section class="landing-hero" aria-labelledby="landing-title">
+    <section class="landing-hero" id="inicio" aria-labelledby="landing-title">
         <div class="landing-hero-copy">
-            <p class="eyebrow">GESTIÓN DOCUMENTAL LEGAL</p>
-            <h1 id="landing-title">legalcloud<span class="landing-brand-accent">AI</span></h1>
-            <p class="landing-hero-lead">Organiza expedientes, documentos y consultas con IA en un solo espacio de trabajo.</p>
-            <div class="landing-hero-cta">
-                <button class="button button-primary" type="button" data-open-login>Entrar a mi espacio</button>
-                <a class="button button-quiet" href="#planes">Comparar versiones</a>
+            <h1 id="landing-title">LegalCloud <span>AI</span></h1>
+            <p class="landing-hero-lead">Gestiona organiza y encuentra tus documentos legales de forma inteligente en un solo espacio. Expedientes y archivos quedan juntos con su estado y su responsable. La búsqueda encuentra el documento que necesitas y el asistente te ayuda a consultarlo.</p>
+            <div class="landing-cta">
+                <button class="landing-btn landing-btn-solid" type="button" data-open-login><i data-icon="rocket"></i>Comenzar ahora</button>
             </div>
         </div>
-        <div class="landing-hero-visual" aria-hidden="true">
-            <div class="landing-hero-panel">
-                <strong>Expedientes, OCR y asistente en un mismo flujo</strong>
-                <span>Diseñado para equipos legales que necesitan control, búsqueda y trazabilidad.</span>
-                <div class="landing-hero-dots"><i></i><i></i><i></i></div>
-            </div>
+        <figure class="landing-hero-visual">
+            <img src="{{ asset('images/landing-scales.jpg') }}" alt="Balanza de la justicia sobre un escritorio, junto a libros y una planta." width="1280" height="720">
+        </figure>
+    </section>
+    <section class="landing-block" id="caracteristicas" aria-labelledby="caracteristicas-title">
+        <div class="landing-block-head">
+            <p class="landing-kicker is-badge"><i data-icon="grid"></i>Características</p>
+            <h2 id="caracteristicas-title">Cuatro piezas del espacio de trabajo</h2>
+            <p>Cada una cubre una parte del flujo, del archivo a la consulta.</p>
+        </div>
+        <div class="feature-grid">
+            <article class="feature-card">
+                <span class="landing-feature-icon"><i data-icon="folder"></i></span>
+                <div>
+                    <h3>Gestión documental</h3>
+                    <p>Expedientes y archivos quedan en el mismo lugar, con su estado y su responsable.</p>
+                </div>
+            </article>
+            <article class="feature-card">
+                <span class="landing-feature-icon"><i data-icon="search"></i></span>
+                <div>
+                    <h3>Búsqueda inteligente</h3>
+                    <p>Localiza un documento o un fragmento sin recorrer carpeta por carpeta.</p>
+                </div>
+            </article>
+            <article class="feature-card">
+                <span class="landing-feature-icon"><i data-icon="shield"></i></span>
+                <div>
+                    <h3>Seguridad</h3>
+                    <p>Cada persona entra a lo que le corresponde, con registro de lo que hace.</p>
+                </div>
+            </article>
+            <article class="feature-card">
+                <span class="landing-feature-icon"><i data-icon="bell"></i></span>
+                <div>
+                    <h3>Notificaciones</h3>
+                    <p>Avisos cuando un archivo se procesa, cambia o queda listo para consultar.</p>
+                </div>
+            </article>
         </div>
     </section>
-    <section class="landing-section" id="planes" aria-labelledby="planes-title">
-        <div class="landing-section-head">
-            <p class="eyebrow">VERSIONES</p>
-            <h2 id="planes-title">Dos versiones del aplicativo</h2>
-            <p>Presentación de los planes Free y Premium. La contratación aún no está habilitada; puedes iniciar sesión si ya tienes cuenta.</p>
+    <section class="landing-block landing-block-band" id="beneficios" aria-labelledby="beneficios-title">
+        <div class="landing-block-head">
+            <p class="landing-kicker is-badge"><i data-icon="sparkles"></i>Beneficios</p>
+            <h2 id="beneficios-title">Menos búsqueda suelta, más control</h2>
+            <p>El equipo trabaja sobre los mismos expedientes, con una sola fuente.</p>
         </div>
-        <div class="landing-plans">
+        <ol class="benefit-grid">
+            <li>
+                <span>01</span>
+                <h3>El expediente reunido</h3>
+                <p>Documentos, versiones y estado viven juntos. No hay que armar el caso desde el correo.</p>
+            </li>
+            <li>
+                <span>02</span>
+                <h3>Consulta con contexto</h3>
+                <p>La búsqueda y el asistente se apoyan en lo que ya está cargado en la organización.</p>
+            </li>
+            <li>
+                <span>03</span>
+                <h3>Orden para el equipo</h3>
+                <p>Roles, auditoría y un espacio compartido, sin mezclar el trabajo de cada persona.</p>
+            </li>
+        </ol>
+    </section>
+    <section class="landing-block" id="planes" aria-labelledby="planes-title">
+        <div class="landing-block-head">
+            <p class="landing-kicker is-badge"><i data-icon="tag"></i>Planes</p>
+            <h2 id="planes-title">Elige el plan de tu espacio</h2>
+            <p>Empieza sin costo o pasa al plan completo cuando el equipo lo necesite.</p>
+        </div>
+        <div class="landing-plan-grid">
             <article class="plan-card">
                 <span class="plan-badge">Free</span>
-                <h3>Free</h3>
-                <p class="plan-price"><em>$0</em> / mes</p>
-                <p class="plan-desc">Versión esencial para conocer el flujo documental de tu organización.</p>
-                <div class="plan-preview" aria-hidden="true">
-                    <div class="plan-preview-bar"><span></span><span></span><span></span></div>
-                    <div class="plan-preview-rows"><i></i><i></i><i></i></div>
-                </div>
+                <p class="plan-price"><em>$0</em> <span>/ mes</span></p>
                 <ul class="plan-list">
-                    <li>Resumen y expedientes básicos</li>
-                    <li>Biblioteca de documentos</li>
-                    <li>1 espacio de trabajo</li>
-                    <li>Soporte por correo</li>
+                    <li><i data-icon="check"></i>Resumen y expedientes</li>
+                    <li><i data-icon="check"></i>Biblioteca de documentos</li>
+                    <li><i data-icon="check"></i>Un espacio de trabajo</li>
+                    <li><i data-icon="check"></i>Soporte por correo</li>
                 </ul>
-                <p class="plan-note">Solo presentación · sin checkout</p>
-                <button class="button button-quiet" type="button" data-open-login>Iniciar sesión</button>
+                <button class="landing-btn landing-btn-ghost" type="button" data-open-login>Iniciar sesión</button>
             </article>
             <article class="plan-card is-premium">
                 <span class="plan-badge">Premium</span>
-                <h3>Premium</h3>
-                <p class="plan-price"><em>$49</em> / mes</p>
-                <p class="plan-desc">Versión completa con procesamiento, búsqueda inteligente y asistente IA.</p>
-                <div class="plan-preview" aria-hidden="true">
-                    <div class="plan-preview-bar"><span></span><span></span><span></span></div>
-                    <div class="plan-preview-rows"><i></i><i></i><i></i></div>
-                </div>
+                <p class="plan-price"><em>$49</em> <span>/ mes</span></p>
                 <ul class="plan-list">
-                    <li>Todo lo de Free</li>
-                    <li>OCR y procesamiento de archivos</li>
-                    <li>Búsqueda inteligente y asistente IA</li>
-                    <li>Usuarios, roles y auditoría</li>
+                    <li><i data-icon="check"></i>Todo lo de Free</li>
+                    <li><i data-icon="check"></i>OCR y procesamiento</li>
+                    <li><i data-icon="check"></i>Búsqueda y asistente IA</li>
+                    <li><i data-icon="check"></i>Usuarios, roles y auditoría</li>
                 </ul>
-                <p class="plan-note">Solo presentación · sin checkout</p>
-                <button class="button button-primary" type="button" data-open-login>Iniciar sesión</button>
+                <button class="landing-btn landing-btn-solid" type="button" data-open-login>Iniciar sesión</button>
             </article>
         </div>
     </section>
-    <footer class="landing-footer">LegalCloud AI · Los planes Free y Premium se muestran con fines de presentación.</footer>
+    <footer class="landing-footer" id="contacto">
+        <a class="brand landing-brand" href="#inicio" aria-label="LegalCloud AI, inicio"><span class="brand-mark">lc<span>.</span></span><span class="brand-name">legalcloud<span>AI</span></span></a>
+        <p>Innovación y tecnología al servicio de la justicia</p>
+        <small>© 2026 LegalCloud AI.</small>
+    </footer>
 </div>
 <div class="auth-gate" data-auth-gate hidden>
     <form class="auth-card" data-login-form>
